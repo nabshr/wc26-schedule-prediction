@@ -40,7 +40,7 @@ function TeamSelector({ label, selected, onSelect, exclude, isOpen, onToggle, on
   });
 
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} className={`relative ${isOpen ? 'z-[100]' : 'z-0'}`}>
       <button
         onClick={onToggle}
         className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 hover:border-brand-500/50 transition-all"
@@ -63,7 +63,7 @@ function TeamSelector({ label, selected, onSelect, exclude, isOpen, onToggle, on
       </button>
 
       {isOpen && (
-        <div className="absolute z-50 w-full mt-1 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-xl max-h-64 overflow-y-auto">
+        <div className="absolute left-0 top-full z-[110] w-full mt-1 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-xl max-h-64 overflow-y-auto">
           <div className="sticky top-0 z-10 bg-white dark:bg-slate-800 p-2 border-b border-slate-100 dark:border-slate-700">
             <input
               type="text"
@@ -226,7 +226,7 @@ export default function Predictor() {
       </div>
 
       {/* Team Selectors */}
-      <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] gap-4 items-end">
+      <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] gap-4 items-start relative z-20">
         <GlassPanel>
           <SectionHeader title="Team A" />
           <div className="mt-3">
