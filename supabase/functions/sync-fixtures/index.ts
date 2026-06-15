@@ -18,6 +18,7 @@ const TEAM_MAP: Record<string, string> = {
   "Australia": "AUS", "Germany": "GER", "Ecuador": "ECU",
   "Ivory Coast": "CIV", "Cote d'Ivoire": "CIV", "Curacao": "CUW",
   "Netherlands": "NED", "Sweden": "SWE", "Tunisia": "TUN",
+  "Curaçao": "CUW", "Cape Verde Islands": "CPV",
   "Japan": "JPN", "Belgium": "BEL", "Iran": "IRN",
   "Egypt": "EGY", "New Zealand": "NZL", "Spain": "ESP",
   "Uruguay": "URU", "Saudi Arabia": "KSA", "Cabo Verde": "CPV",
@@ -403,6 +404,7 @@ async function tryBackupProvider(
     let errors = 0;
     let skipped = 0;
     let unmappedTeams: string[] = [];
+    let insertErrorSamples: string[] = [];
 
     for (const match of matches) {
       try {
@@ -508,17 +510,26 @@ async function tryBackupProvider(
             .eq("home_team_code", homeCode)
             .eq("away_team_code", awayCode)
             .eq("kickoff_utc", kickoff);
-          if (updateError) errors++;
-          else updated++;
+          if (updateError) {
+            errors++;
+            insertErrorSamples.push(updateError.message);
+          } else {
+            updated++;
+          }
         } else {
           const { error: insertError } = await supabase
             .from("wc2026_fixtures")
             .insert(row);
-          if (insertError) errors++;
-          else updated++;
+          if (insertError) {
+            errors++;
+            insertErrorSamples.push(insertError.message);
+          } else {
+            updated++;
+          }
         }
-      } catch {
+      } catch (e: any) {
         errors++;
+        insertErrorSamples.push(e?.message || String(e));
       }
     }
 
@@ -528,6 +539,8 @@ async function tryBackupProvider(
 
     backupMeta.updated = updated;
     backupMeta.skipped = skipped;
+    backupMeta.errors = errors;
+    backupMeta.insertErrorSamples = insertErrorSamples.slice(0, 5);
     backupMeta.unmappedTeams = [...new Set(unmappedTeams)];
 
     await supabase
