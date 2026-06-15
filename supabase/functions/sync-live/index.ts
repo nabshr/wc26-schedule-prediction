@@ -32,7 +32,7 @@ const TEAM_MAP: Record<string, string> = {
 
 const DAILY_API_BUDGET = 2000;
 const PREMATCH_WINDOW_MINUTES = 60;
-const LIVE_LOOKBACK_MINUTES = 15;
+const LIVE_LOOKBACK_MINUTES = 5;
 
 function mapStatus(shortStatus: string): string {
   const s = shortStatus?.toLowerCase() || "";
