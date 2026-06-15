@@ -18,6 +18,7 @@ const TEAM_MAP: Record<string, string> = {
   "Australia": "AUS", "Germany": "GER", "Ecuador": "ECU",
   "Ivory Coast": "CIV", "Cote d'Ivoire": "CIV", "Curacao": "CUW",
   "Netherlands": "NED", "Sweden": "SWE", "Tunisia": "TUN",
+  "Curaçao": "CUW", "Cape Verde Islands": "CPV",
   "Japan": "JPN", "Belgium": "BEL", "Iran": "IRN",
   "Egypt": "EGY", "New Zealand": "NZL", "Spain": "ESP",
   "Uruguay": "URU", "Saudi Arabia": "KSA", "Cabo Verde": "CPV",
