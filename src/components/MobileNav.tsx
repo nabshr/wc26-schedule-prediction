@@ -4,6 +4,9 @@ import {
   Star, BarChart3, Target, Radio, Flag, Clock, Shield,
   BookOpen, Settings, Trophy, X
 } from 'lucide-react';
+import { useTheme } from '../context/ThemeContext';
+import logoLight from '../assets/wc26_light.jpg';
+import logoDark from '../assets/wc26_dark.png';
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -37,7 +40,11 @@ export default function MobileNav({ open, onClose }: MobileNavProps) {
         <div className="flex items-center justify-between px-4 h-16 border-b border-slate-200 dark:border-slate-700">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center shadow-glow">
-              <Trophy className="w-5 h-5 text-white" />
+              <img
+                  src={championLogo}
+                  alt="FIFA World Cup 2026 logo"
+                  className="w-full h-full object-contain"
+                />
             </div>
             <div>
               <h1 className="text-sm font-bold text-slate-900 dark:text-white">World Cup 2026</h1>
