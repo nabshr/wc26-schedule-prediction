@@ -30,7 +30,7 @@ export default function TopNav({ onMenuClick }: TopNavProps) {
             </span>
 
             <span className="hidden sm:block text-sm md:text-base font-bold text-slate-900 dark:text-white truncate">
-              FIFA World Cup 2026
+              FIFA World Cup 2026 Predictor
             </span>
           </div>
         </div>
