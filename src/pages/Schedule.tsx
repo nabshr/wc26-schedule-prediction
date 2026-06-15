@@ -5,15 +5,16 @@ import SegmentedTabs from '../components/SegmentedTabs';
 import RoundedCard from '../components/RoundedCard';
 import TeamBadge from '../components/TeamBadge';
 import { GROUP_NAMES, getTeamByCode } from '../data/worldCup2026';
-import { WC2026_FIXTURES, WC2026Fixture, STAGE_LABELS } from '../data/fixtures2026';
+import { STAGE_LABELS } from '../data/fixtures2026';
+import { useWC2026Fixtures, type MergedFixture } from '../lib/useWC2026Fixtures';
 
 const tabs = [
   { id: 'all', label: 'All' },
   { id: 'upcoming', label: 'Upcoming' },
+  { id: 'live', label: 'Live' },
   { id: 'completed', label: 'Completed' },
 ];
 
-// Convert UTC time to Nepal time (Asia/Kathmandu, UTC+5:45)
 function toNepalTime(dateStr: string, timeStr: string): string {
   const [h, m] = timeStr.split(':').map(Number);
   const utcDate = new Date(`${dateStr}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00Z`);
@@ -26,20 +27,29 @@ function formatDate(dateStr: string): string {
   return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
 }
 
-function MatchCard({ f }: { f: WC2026Fixture }) {
+function MatchCard({ f }: { f: MergedFixture }) {
   const homeTeam = getTeamByCode(f.home);
   const awayTeam = getTeamByCode(f.away);
   const nptTime = toNepalTime(f.date, f.timeUTC);
+  const isLive = f.status === 'live';
 
   return (
-    <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-4 bg-white dark:bg-slate-800 hover:border-brand-500/30 transition-colors">
+    <div className={`rounded-xl border p-4 transition-colors ${
+      isLive ? 'border-red-300 dark:border-red-500/50 bg-red-50/50 dark:bg-red-500/5' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-brand-500/30'
+    }`}>
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           {f.stage === 'group' && <span className="badge-brand">Group {f.group}</span>}
           <span className="text-[10px] text-slate-400">{STAGE_LABELS[f.stage]}{f.matchday ? ` MD${f.matchday}` : ''}</span>
         </div>
-        <span className={`badge ${f.status === 'completed' ? 'badge-success' : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400'}`}>
-          {f.status === 'completed' ? 'FT' : `${nptTime} NPT`}
+        <span className={`badge ${
+          f.status === 'completed' ? 'badge-success'
+          : isLive ? 'bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-400'
+          : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400'
+        }`}>
+          {f.status === 'completed' ? 'FT'
+          : isLive ? `${f.statusDetail || 'Live'} ${f.matchMinute ? `${f.matchMinute}'` : ''}`
+          : `${nptTime} NPT`}
         </span>
       </div>
       <div className="flex items-center justify-between gap-4">
@@ -52,6 +62,12 @@ function MatchCard({ f }: { f: WC2026Fixture }) {
               <span className={`text-lg font-bold ${f.homeScore > f.awayScore ? 'text-brand-600 dark:text-brand-400' : 'text-slate-700 dark:text-slate-300'}`}>{f.homeScore}</span>
               <span className="text-xs text-slate-400">-</span>
               <span className={`text-lg font-bold ${f.awayScore > f.homeScore ? 'text-brand-600 dark:text-brand-400' : 'text-slate-700 dark:text-slate-300'}`}>{f.awayScore}</span>
+            </>
+          ) : isLive && f.homeScore !== null && f.awayScore !== null ? (
+            <>
+              <span className="text-lg font-bold text-slate-800 dark:text-slate-200">{f.homeScore}</span>
+              <span className="text-xs text-slate-400">-</span>
+              <span className="text-lg font-bold text-slate-800 dark:text-slate-200">{f.awayScore}</span>
             </>
           ) : (
             <span className="text-xs text-slate-400">vs</span>
@@ -75,18 +91,21 @@ export default function Schedule() {
   const [groupFilter, setGroupFilter] = useState<string>('all');
   const [stageFilter, setStageFilter] = useState<string>('all');
 
+  const { fixtures, hasLiveMatch, lastFixtureSync } = useWC2026Fixtures();
+
   const filteredFixtures = useMemo(() => {
-    let fixtures = WC2026_FIXTURES;
+    let fxs = fixtures;
 
-    if (activeTab === 'upcoming') fixtures = fixtures.filter(f => f.status === 'scheduled');
-    else if (activeTab === 'completed') fixtures = fixtures.filter(f => f.status === 'completed');
+    if (activeTab === 'upcoming') fxs = fxs.filter(f => f.status === 'scheduled');
+    else if (activeTab === 'live') fxs = fxs.filter(f => f.status === 'live');
+    else if (activeTab === 'completed') fxs = fxs.filter(f => f.status === 'completed');
 
-    if (groupFilter !== 'all') fixtures = fixtures.filter(f => f.group === groupFilter);
-    if (stageFilter !== 'all') fixtures = fixtures.filter(f => f.stage === stageFilter);
+    if (groupFilter !== 'all') fxs = fxs.filter(f => f.group === groupFilter);
+    if (stageFilter !== 'all') fxs = fxs.filter(f => f.stage === stageFilter);
 
     if (search) {
       const q = search.toLowerCase();
-      fixtures = fixtures.filter(f => {
+      fxs = fxs.filter(f => {
         const home = getTeamByCode(f.home);
         const away = getTeamByCode(f.away);
         return (
@@ -99,11 +118,11 @@ export default function Schedule() {
       });
     }
 
-    return fixtures;
-  }, [activeTab, search, groupFilter, stageFilter]);
+    return fxs;
+  }, [fixtures, activeTab, search, groupFilter, stageFilter]);
 
   const groupedByDate = useMemo(() => {
-    const groups: Record<string, WC2026Fixture[]> = {};
+    const groups: Record<string, MergedFixture[]> = {};
     for (const f of filteredFixtures) {
       const key = f.date;
       if (!groups[key]) groups[key] = [];
@@ -112,7 +131,9 @@ export default function Schedule() {
     return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b));
   }, [filteredFixtures]);
 
-  const completedCount = WC2026_FIXTURES.filter(f => f.status === 'completed').length;
+  const completedCount = fixtures.filter(f => f.status === 'completed').length;
+  const liveCount = fixtures.filter(f => f.status === 'live').length;
+  const syncedAt = lastFixtureSync?.finished_at;
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -165,23 +186,35 @@ export default function Schedule() {
           <span className="text-slate-500 dark:text-slate-400">
             <span className="font-semibold text-slate-700 dark:text-slate-200">{completedCount}</span> completed
           </span>
+          {liveCount > 0 && (
+            <span className="text-red-500 font-semibold">
+              {liveCount} live
+            </span>
+          )}
         </div>
-        <span className="text-[10px] font-medium text-slate-400 bg-slate-100 dark:bg-slate-700 rounded-lg px-2.5 py-1 flex items-center gap-1">
-          <Clock className="w-3 h-3" /> All times NPT (UTC+5:45)
-        </span>
+        <div className="flex items-center gap-2">
+          {syncedAt && (
+            <span className="text-[9px] text-slate-400">
+              Synced {new Date(syncedAt).toLocaleTimeString('en-US', { hour12: false })}
+            </span>
+          )}
+          <span className="text-[10px] font-medium text-slate-400 bg-slate-100 dark:bg-slate-700 rounded-lg px-2.5 py-1 flex items-center gap-1">
+            <Clock className="w-3 h-3" /> NPT (UTC+5:45)
+          </span>
+        </div>
       </div>
 
       {groupedByDate.length > 0 ? (
         <div className="space-y-6">
-          {groupedByDate.map(([date, fixtures]) => (
+          {groupedByDate.map(([date, fxs]) => (
             <div key={date}>
               <div className="flex items-center gap-3 mb-3">
                 <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-200">{formatDate(date)}</h2>
                 <div className="flex-1 h-px bg-slate-200 dark:bg-slate-700" />
-                <span className="text-[10px] text-slate-400">{fixtures.length} matches</span>
+                <span className="text-[10px] text-slate-400">{fxs.length} matches</span>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {fixtures.map(f => <MatchCard key={f.id} f={f} />)}
+                {fxs.map(f => <MatchCard key={f.id} f={f} />)}
               </div>
             </div>
           ))}
@@ -191,16 +224,13 @@ export default function Schedule() {
           <div className="py-16 flex flex-col items-center text-center">
             <CalendarDays className="w-12 h-12 text-slate-300 dark:text-slate-600 mb-3" />
             {activeTab === 'completed' ? (
-              <>
-                <p className="text-base font-semibold text-slate-700 dark:text-slate-300">No completed matches found</p>
-                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Try adjusting your search or filters.</p>
-              </>
+              <p className="text-base font-semibold text-slate-700 dark:text-slate-300">No completed matches found</p>
+            ) : activeTab === 'live' ? (
+              <p className="text-base font-semibold text-slate-700 dark:text-slate-300">No live matches</p>
             ) : (
-              <>
-                <p className="text-base font-semibold text-slate-700 dark:text-slate-300">No matches found</p>
-                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Try adjusting your search or filters.</p>
-              </>
+              <p className="text-base font-semibold text-slate-700 dark:text-slate-300">No matches found</p>
             )}
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Try adjusting your search or filters.</p>
           </div>
         </RoundedCard>
       )}

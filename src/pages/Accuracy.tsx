@@ -6,7 +6,7 @@ import RoundedCard from '../components/RoundedCard';
 import GlassPanel from '../components/GlassPanel';
 import EmptyState from '../components/EmptyState';
 import { getTeamByCode } from '../data/worldCup2026';
-import { WC2026_FIXTURES } from '../data/fixtures2026';
+import { useWC2026Fixtures } from '../lib/useWC2026Fixtures';
 import { predictMatch } from '../lib/prediction';
 
 type Outcome = 'homeWin' | 'draw' | 'awayWin';
@@ -76,8 +76,10 @@ function computeMetrics(results: GradedResult[]) {
 }
 
 export default function Accuracy() {
+  const { fixtures } = useWC2026Fixtures();
+
   const gradedResults = useMemo<GradedResult[]>(() => {
-    const completed = WC2026_FIXTURES.filter(f => f.status === 'completed' && f.homeScore !== null && f.awayScore !== null);
+    const completed = fixtures.filter(f => f.status === 'completed' && f.homeScore !== null && f.awayScore !== null);
     return completed.map(f => {
       const homeTeam = getTeamByCode(f.home);
       const awayTeam = getTeamByCode(f.away);
@@ -102,7 +104,7 @@ export default function Accuracy() {
         correct: predictedOutcome === actualOutcome,
       };
     }).filter((r): r is GradedResult => r !== null);
-  }, []);
+  }, [fixtures]);
 
   const metrics = useMemo(() => computeMetrics(gradedResults), [gradedResults]);
 

@@ -1,10 +1,11 @@
-import { BarChart3, CheckCircle2, XCircle, Minus } from 'lucide-react';
+import { BarChart3, CheckCircle2, XCircle } from 'lucide-react';
 import { useMemo } from 'react';
 import SectionHeader from '../components/SectionHeader';
 import RoundedCard from '../components/RoundedCard';
 import TeamBadge from '../components/TeamBadge';
 import { getTeamByCode } from '../data/worldCup2026';
-import { WC2026_FIXTURES, STAGE_LABELS } from '../data/fixtures2026';
+import { STAGE_LABELS } from '../data/fixtures2026';
+import { useWC2026Fixtures, type MergedFixture } from '../lib/useWC2026Fixtures';
 import { predictMatch } from '../lib/prediction';
 
 function formatDate(dateStr: string): string {
@@ -21,7 +22,7 @@ function getOutcome(homeScore: number, awayScore: number): Outcome {
 }
 
 interface GradedMatch {
-  fixture: typeof WC2026_FIXTURES[number];
+  fixture: MergedFixture;
   prediction: ReturnType<typeof predictMatch> | null;
   actualOutcome: Outcome;
   calledCorrectly: boolean | null;
@@ -29,9 +30,11 @@ interface GradedMatch {
 }
 
 export default function Results() {
+  const { fixtures, lastFixtureSync } = useWC2026Fixtures();
+
   const completedMatches = useMemo(
-    () => WC2026_FIXTURES.filter(f => f.status === 'completed' && f.homeScore !== null && f.awayScore !== null),
-    []
+    () => fixtures.filter(f => f.status === 'completed' && f.homeScore !== null && f.awayScore !== null),
+    [fixtures]
   );
 
   const graded = useMemo<GradedMatch[]>(() => {
@@ -63,6 +66,7 @@ export default function Results() {
   const correctCount = graded.filter(g => g.calledCorrectly === true).length;
   const totalGraded = graded.length;
   const hitRate = totalGraded > 0 ? (correctCount / totalGraded) * 100 : 0;
+  const syncedAt = lastFixtureSync?.finished_at;
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -76,6 +80,11 @@ export default function Results() {
           <span className="text-slate-500 dark:text-slate-400">
             Hit rate: <span className="font-semibold text-slate-700 dark:text-slate-200">{hitRate.toFixed(0)}%</span>
           </span>
+          {syncedAt && (
+            <span className="text-[9px] text-slate-400">
+              Synced {new Date(syncedAt).toLocaleTimeString('en-US', { hour12: false })}
+            </span>
+          )}
         </div>
       </div>
 
@@ -85,14 +94,12 @@ export default function Results() {
             <BarChart3 className="w-12 h-12 text-slate-300 dark:text-slate-600 mb-3" />
             <p className="text-base font-semibold text-slate-700 dark:text-slate-300">No completed matches yet</p>
             <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-              {completedMatches.length} matches completed. Results and prediction grading will appear here as matches finish.
+              Results and prediction grading will appear here as matches finish. Use Admin &gt; Sync Fixtures to pull live data.
             </p>
-            <p className="text-[10px] text-slate-400 mt-3">Last updated: {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
           </div>
         </RoundedCard>
       ) : (
         <>
-          {/* Summary cards */}
           <div className="grid grid-cols-3 gap-3">
             <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 text-center">
               <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{correctCount}</p>
@@ -108,7 +115,6 @@ export default function Results() {
             </div>
           </div>
 
-          {/* Results table */}
           <RoundedCard className="!p-0 overflow-hidden" hover={false}>
             <div className="px-5 py-3 border-b border-slate-100 dark:border-slate-700/50">
               <SectionHeader title="Match Results" subtitle={`${totalGraded} graded matches`} icon={<BarChart3 className="w-5 h-5" />} />

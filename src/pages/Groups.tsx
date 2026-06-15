@@ -4,8 +4,8 @@ import SectionHeader from '../components/SectionHeader';
 import RoundedCard from '../components/RoundedCard';
 import TeamBadge from '../components/TeamBadge';
 import { GROUP_NAMES, getTeamsByGroup, getTeamByCode } from '../data/worldCup2026';
-import { WC2026_FIXTURES, STAGE_LABELS } from '../data/fixtures2026';
 import { simulateGroupStage, type GroupProbabilities } from '../lib/prediction';
+import { useWC2026Fixtures, type MergedFixture } from '../lib/useWC2026Fixtures';
 
 function toNepalTime(dateStr: string, timeStr: string): string {
   const [h, m] = timeStr.split(':').map(Number);
@@ -16,11 +16,11 @@ function toNepalTime(dateStr: string, timeStr: string): string {
 
 type GroupTab = 'standings' | 'fixtures' | 'probabilities';
 
-function GroupCard({ group, simData }: { group: string; simData: GroupProbabilities[] }) {
+function GroupCard({ group, simData, allFixtures }: { group: string; simData: GroupProbabilities[]; allFixtures: MergedFixture[] }) {
   const [tab, setTab] = useState<GroupTab>('probabilities');
   const fixtures = useMemo(
-    () => WC2026_FIXTURES.filter(f => f.stage === 'group' && f.group === group),
-    [group]
+    () => allFixtures.filter(f => f.stage === 'group' && f.group === group),
+    [allFixtures, group]
   );
 
   const tabConfig: { id: GroupTab; label: string; icon: React.ReactNode }[] = [
@@ -64,7 +64,7 @@ function GroupCard({ group, simData }: { group: string; simData: GroupProbabilit
   );
 }
 
-function StandingsTab({ fixtures, simData }: { fixtures: typeof WC2026_FIXTURES; simData: GroupProbabilities[] }) {
+function StandingsTab({ fixtures, simData }: { fixtures: MergedFixture[]; simData: GroupProbabilities[] }) {
   const teams = simData.map(sd => sd.team);
   const hasResults = fixtures.some(f => f.status === 'completed');
 
@@ -172,12 +172,13 @@ function StandingsTab({ fixtures, simData }: { fixtures: typeof WC2026_FIXTURES;
   );
 }
 
-function FixturesTab({ fixtures }: { fixtures: typeof WC2026_FIXTURES }) {
+function FixturesTab({ fixtures }: { fixtures: MergedFixture[] }) {
   const hasResults = fixtures.some(f => f.status === 'completed');
+  const hasLive = fixtures.some(f => f.status === 'live');
 
   return (
     <div>
-      {!hasResults && (
+      {!hasResults && !hasLive && (
         <div className="flex items-center gap-2 mb-3">
           <span className="badge bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 text-[10px]">Pre-tournament</span>
           <span className="text-[10px] text-slate-400">Scheduled fixtures</span>
@@ -187,19 +188,27 @@ function FixturesTab({ fixtures }: { fixtures: typeof WC2026_FIXTURES }) {
         {fixtures.map(f => {
           const homeTeam = getTeamByCode(f.home);
           const awayTeam = getTeamByCode(f.away);
+          const isLive = f.status === 'live';
           return (
-            <div key={f.id} className="flex items-center gap-3 py-2 border-b border-slate-100 dark:border-slate-800 last:border-0">
+            <div key={f.id} className={`flex items-center gap-3 py-2 border-b border-slate-100 dark:border-slate-800 last:border-0 ${isLive ? 'bg-red-50/50 dark:bg-red-500/5 -mx-1 px-1 rounded-lg' : ''}`}>
               <span className="text-[10px] text-slate-400 w-8 shrink-0">MD{f.matchday}</span>
               <div className="flex-1 flex items-center gap-2">
                 <span className="text-xs font-medium text-slate-700 dark:text-slate-300">{homeTeam?.code || 'TBD'}</span>
                 {f.status === 'completed' && f.homeScore !== null && f.awayScore !== null ? (
                   <span className="text-xs font-bold text-slate-800 dark:text-slate-200">{f.homeScore} - {f.awayScore}</span>
+                ) : isLive && f.homeScore !== null && f.awayScore !== null ? (
+                  <span className="text-xs font-bold text-red-600 dark:text-red-400">{f.homeScore} - {f.awayScore}{f.matchMinute ? ` ${f.matchMinute}'` : ''}</span>
                 ) : (
                   <span className="text-[10px] text-slate-400">vs</span>
                 )}
                 <span className="text-xs font-medium text-slate-700 dark:text-slate-300">{awayTeam?.code || 'TBD'}</span>
+                {isLive && <span className="badge bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-400 text-[8px]">LIVE</span>}
               </div>
-              <span className="text-[10px] text-slate-400 shrink-0">{toNepalTime(f.date, f.timeUTC)} NPT</span>
+              {isLive ? (
+                <span className="text-[10px] text-red-500 font-medium shrink-0">{f.statusDetail || 'Live'}</span>
+              ) : (
+                <span className="text-[10px] text-slate-400 shrink-0">{f.status === 'completed' ? 'FT' : `${toNepalTime(f.date, f.timeUTC)} NPT`}</span>
+              )}
             </div>
           );
         })}
@@ -273,6 +282,7 @@ function ProbabilitiesTab({ simData }: { simData: GroupProbabilities[] }) {
 
 export default function Groups() {
   const sim = useMemo(() => simulateGroupStage(30000, 2026), []);
+  const { fixtures: allFixtures } = useWC2026Fixtures();
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -305,7 +315,7 @@ export default function Groups() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {GROUP_NAMES.map(g => (
-          <GroupCard key={g} group={g} simData={sim.groups[g]} />
+          <GroupCard key={g} group={g} simData={sim.groups[g]} allFixtures={allFixtures} />
         ))}
       </div>
 
