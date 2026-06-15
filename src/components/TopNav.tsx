@@ -1,5 +1,7 @@
-import { Sun, Moon, Menu, Trophy } from 'lucide-react';
+import { Sun, Moon, Menu } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
+import logoLight from '../assets/wc26_light.jpg';
+import logoDark from '../assets/wc26_dark.png';
 
 interface TopNavProps {
   onMenuClick: () => void;
@@ -7,6 +9,8 @@ interface TopNavProps {
 
 export default function TopNav({ onMenuClick }: TopNavProps) {
   const { theme, toggleTheme } = useTheme();
+
+  const currentLogo = theme === 'dark' ? logoDark : logoLight;
 
   return (
     <header className="sticky top-0 z-40 h-16 flex items-center justify-between px-4 lg:px-6 border-b border-slate-200/60 dark:border-slate-700/40 bg-white/80 dark:bg-surface-dark/80 backdrop-blur-xl">
@@ -20,17 +24,19 @@ export default function TopNav({ onMenuClick }: TopNavProps) {
         </button>
 
         <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-          <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center shadow-glow flex-shrink-0">
-            <Trophy className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
-          </div>
+          <img
+            src={currentLogo}
+            alt="FIFA World Cup 2026 logo"
+            className="h-8 w-auto sm:h-9 flex-shrink-0 object-contain"
+          />
 
           <div className="min-w-0">
             <span className="block sm:hidden text-sm font-bold text-slate-900 dark:text-white truncate">
-              WC26 Predictor
+              WC26
             </span>
 
             <span className="hidden sm:block text-sm md:text-base font-bold text-slate-900 dark:text-white truncate">
-              FIFA World Cup 2026 Predictor
+              FIFA World Cup 2026
             </span>
           </div>
         </div>
