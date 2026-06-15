@@ -30,7 +30,9 @@ const TEAM_MAP: Record<string, string> = {
   "Croatia": "CRO", "Ghana": "GHA", "Panama": "PAN",
 };
 
-const DAILY_API_BUDGET = 90;
+const DAILY_API_BUDGET = 2000;
+const PREMATCH_WINDOW_MINUTES = 60;
+const LIVE_LOOKBACK_MINUTES = 15;
 
 function mapStatus(shortStatus: string): string {
   const s = shortStatus?.toLowerCase() || "";
@@ -80,32 +82,54 @@ Deno.serve(async (req: Request) => {
     }), { headers: { "Content-Type": "application/json", ...corsHeaders } });
   }
 
-  // Live window guard: skip if no match is live AND no kickoff within 2.5h
+  // Concurrency guard: prevent overlapping live syncs
+  const { data: runningSyncs } = await supabase
+    .from("sync_runs")
+    .select("id")
+    .eq("sync_type", "live")
+    .eq("status", "running")
+    .gt("started_at", new Date(Date.now() - 2 * 60 * 1000).toISOString())
+    .limit(1);
+
+  if (runningSyncs && runningSyncs.length > 0) {
+    return new Response(JSON.stringify({
+      message: "Live sync already in progress. Skipping.",
+      status: "skipped",
+    }), { headers: { "Content-Type": "application/json", ...corsHeaders } });
+  }
+
+  // Live window guard:
+  // Run when a match is live OR kickoff is within the next 60 minutes.
   const now = new Date();
-  const windowStart = new Date(now.getTime() - 15 * 60 * 1000);
-  const windowEnd = new Date(now.getTime() + 2.5 * 60 * 60 * 1000);
+  const windowStart = new Date(now.getTime() - LIVE_LOOKBACK_MINUTES * 60 * 1000);
+  const windowEnd = new Date(now.getTime() + PREMATCH_WINDOW_MINUTES * 60 * 1000);
 
   const { data: liveFixtures } = await supabase
     .from("wc2026_fixtures")
     .select("provider_fixture_id")
     .eq("match_status", "live");
-  const liveProviderIds = (liveFixtures || []).map((f: any) => f.provider_fixture_id).filter(Boolean);
+
+  const liveProviderIds = (liveFixtures || [])
+    .map((f: any) => f.provider_fixture_id)
+    .filter(Boolean);
+
   const hasLive = liveProviderIds.length > 0;
 
   const { count: upcomingInWindow } = await supabase
     .from("wc2026_fixtures")
     .select("*", { count: "exact", head: true })
     .eq("match_status", "scheduled")
-    .gte("kickoff_utc", windowStart.toISOString())
+    .gt("kickoff_utc", now.toISOString())
     .lte("kickoff_utc", windowEnd.toISOString());
 
   if (!hasLive && (upcomingInWindow || 0) === 0) {
     return new Response(JSON.stringify({
-      message: "No live match and no kickoff within window. Skipping.",
+      message: "No live match and no kickoff within next 60 minutes. Skipping.",
       status: "no_live_window",
       has_live: false,
       upcoming_in_window: 0,
       daily_calls: todayApiCalls,
+      polling_mode: "idle",
     }), { headers: { "Content-Type": "application/json", ...corsHeaders } });
   }
 
