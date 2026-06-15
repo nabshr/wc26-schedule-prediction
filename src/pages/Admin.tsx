@@ -501,7 +501,7 @@ export default function Admin() {
             </div>
             <div>
               <h3 className="font-semibold text-slate-900 dark:text-white">Sync Fixtures</h3>
-              <p className="text-xs text-slate-500">Poll fixtures every 30 min</p>
+              <p className="text-xs text-slate-500">Poll fixtures every 10 mins</p>
             </div>
           </div>
           <button className="btn-primary w-full" onClick={handleFixtureSync} disabled={syncing}>
@@ -581,7 +581,7 @@ export default function Admin() {
       </div>
 
       <RoundedCard hover={false}>
-        <SectionHeader title="API Quota & Polling Mode" subtitle="Adaptive polling: 30 sec live / 30 min idle" icon={<Gauge className="w-5 h-5" />} />
+        <SectionHeader title="API Quota & Polling Mode" subtitle="Adaptive polling: 30 sec live / 10 mins idle" icon={<Gauge className="w-5 h-5" />} />
         <div className="mt-4 space-y-4">
           <div>
             <div className="flex items-center justify-between mb-2">
@@ -627,12 +627,12 @@ export default function Admin() {
               pollingMode === 'idle' ? 'bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30' : 'bg-slate-50 dark:bg-slate-800/50'
             }`}>
               <p className={`text-xs font-semibold ${pollingMode === 'idle' ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'}`}>Idle Mode</p>
-              <p className={`text-[10px] mt-0.5 ${pollingMode === 'idle' ? 'text-emerald-500' : 'text-slate-400'}`}>Fixtures every 30 min</p>
+              <p className={`text-[10px] mt-0.5 ${pollingMode === 'idle' ? 'text-emerald-500' : 'text-slate-400'}`}>Fixtures every 10 mins</p>
             </div>
           </div>
 
           <p className="text-[10px] text-slate-400 leading-relaxed">
-            Fixture sync runs every 30 min during idle periods. Live sync runs every 30 sec only when a match is live or due to kick off within the next 60 minutes.
+            Fixture sync runs every 10 mins during idle periods. Live sync runs every 30 sec only when a match is live or due to kick off within the next 60 minutes.
   If the page still does not show fresh timestamps, verify the Supabase cron job and deployed Edge Function are both updated.
           </p>
         </div>
