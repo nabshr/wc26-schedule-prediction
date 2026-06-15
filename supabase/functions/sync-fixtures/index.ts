@@ -61,7 +61,7 @@ function getMatchMinute(fixture: any): number | null {
   return fixture.fixture?.status?.elapsed || null;
 }
 
-const DAILY_API_BUDGET = 90;
+const DAILY_API_BUDGET = 2000;
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
