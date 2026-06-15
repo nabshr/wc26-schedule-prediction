@@ -6,7 +6,7 @@ import TeamBadge from '../components/TeamBadge';
 import { GROUP_NAMES, getTeamByCode } from '../data/worldCup2026';
 import { simulateGroupStage, type GroupProbabilities } from '../lib/prediction';
 import { useTheme } from '../context/ThemeContext';
-import logoLight from '../assets/wc26_light.png';
+import logoLight from '../assets/wc26_light.jpg';
 import logoDark from '../assets/wc26_dark.png';
 
 
