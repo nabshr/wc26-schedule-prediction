@@ -246,7 +246,7 @@ export default function Bracket() {
             </div>
 
             {/* Champion */}
-            <div className="flex flex-col items-center justify-center min-w-[120px]">
+            <div className="flex flex-col items-center justify-center min-w-[80px]">
               <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-gold-400 to-gold-600 flex items-center justify-center shadow-glow-gold">
                 <img
                   src={championLogo}
