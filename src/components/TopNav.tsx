@@ -26,7 +26,7 @@ export default function TopNav({ onMenuClick }: TopNavProps) {
 
           <div className="min-w-0">
             <span className="block sm:hidden text-sm font-bold text-slate-900 dark:text-white truncate">
-              WC26
+              WC26 Predictor
             </span>
 
             <span className="hidden sm:block text-sm md:text-base font-bold text-slate-900 dark:text-white truncate">
