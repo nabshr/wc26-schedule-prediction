@@ -370,39 +370,39 @@ export default function Admin() {
   }, [providerConfig?.provider_mode]);
 
   const { dailyCalls, pollingMode, quotaMode } = useMemo(() => {
-    const todayStart = new Date();
-    todayStart.setUTCHours(0, 0, 0, 0);
+  const todayStart = new Date();
+  todayStart.setUTCHours(0, 0, 0, 0);
 
-    const todayRuns = (syncRuns || []).filter(r => {
-      const started = new Date(r.started_at);
-      return started >= todayStart && (r.status === 'success' || r.status === 'running');
+  const todayRuns = (syncRuns || []).filter(r => {
+    const started = new Date(r.started_at);
+    return started >= todayStart && (r.status === 'success' || r.status === 'running');
+  });
+
+  const calls = todayRuns.length;
+  const budget = 2000;
+
+  let mode: 'live' | 'window' | 'idle';
+  if (hasLiveMatch) {
+    mode = 'live';
+  } else {
+    const now = new Date();
+    const windowEnd = new Date(now.getTime() + 60 * 60 * 1000);
+    const hasUpcoming = fixtures.some(f => {
+      if (f.status !== 'scheduled' || !f.timeUTC) return false;
+      const kickoff = new Date(`${f.date}T${f.timeUTC}:00Z`);
+      return kickoff >= now && kickoff <= windowEnd;
     });
+    mode = hasUpcoming ? 'window' : 'idle';
+  }
 
-    const calls = todayRuns.length;
-    const budget = 90;
+  let qMode: 'safe' | 'caution' | 'exhausted';
+  if (calls >= budget) qMode = 'exhausted';
+  else if (calls >= budget * 0.7) qMode = 'caution';
+  else qMode = 'safe';
 
-    let mode: 'live' | 'window' | 'idle';
+  return { dailyCalls: calls, pollingMode: mode, quotaMode: qMode };
+}, [syncRuns, hasLiveMatch, fixtures]);
 
-    if (hasLiveMatch) {
-      mode = 'live';
-    } else {
-      const now = new Date();
-      const windowEnd = new Date(now.getTime() + 2.5 * 60 * 60 * 1000);
-      const hasUpcoming = fixtures.some(f => {
-        if (f.status !== 'scheduled' || !f.timeUTC) return false;
-        const kickoff = new Date(`${f.date}T${f.timeUTC}:00Z`);
-        return kickoff >= now && kickoff <= windowEnd;
-      });
-      mode = hasUpcoming ? 'window' : 'idle';
-    }
-
-    let qMode: 'safe' | 'caution' | 'exhausted';
-    if (calls >= budget) qMode = 'exhausted';
-    else if (calls >= budget * 0.7) qMode = 'caution';
-    else qMode = 'safe';
-
-    return { dailyCalls: calls, pollingMode: mode, quotaMode: qMode };
-  }, [syncRuns, hasLiveMatch, fixtures]);
 
   if (authLoading) {
     return (
@@ -496,7 +496,7 @@ export default function Admin() {
             </div>
             <div>
               <h3 className="font-semibold text-slate-900 dark:text-white">Sync Fixtures</h3>
-              <p className="text-xs text-slate-500">Poll API-Football (60 min)</p>
+              <p className="text-xs text-slate-500">Poll fixtures every 30 min</p>
             </div>
           </div>
           <button className="btn-primary w-full" onClick={handleFixtureSync} disabled={syncing}>
@@ -524,7 +524,7 @@ export default function Admin() {
             </div>
             <div>
               <h3 className="font-semibold text-slate-900 dark:text-white">Sync Live</h3>
-              <p className="text-xs text-slate-500">Live updates (5 min during matches)</p>
+              <p className="text-xs text-slate-500">Live updates every 30 sec (or within 60 min of kickoff)</p>
             </div>
           </div>
           <button className="btn-secondary w-full" onClick={handleLiveSync} disabled={syncing}>
@@ -576,21 +576,21 @@ export default function Admin() {
       </div>
 
       <RoundedCard hover={false}>
-        <SectionHeader title="API Quota & Polling Mode" subtitle="Free plan: 100 requests/day — managed automatically" icon={<Gauge className="w-5 h-5" />} />
+        <SectionHeader title="API Quota & Polling Mode" subtitle="Adaptive polling: 30 sec live / 30 min idle" icon={<Gauge className="w-5 h-5" />} />
         <div className="mt-4 space-y-4">
           <div>
             <div className="flex items-center justify-between mb-2">
               <span className="text-sm text-slate-600 dark:text-slate-400">Daily API usage</span>
               <span className={`text-sm font-bold ${
                 quotaMode === 'exhausted' ? 'text-red-500' : quotaMode === 'caution' ? 'text-amber-500' : 'text-emerald-600 dark:text-emerald-400'
-              }`}>{dailyCalls} / 90</span>
+              }`}>{dailyCalls} / 2000</span>
             </div>
             <div className="h-2.5 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
               <div
                 className={`h-full rounded-full transition-all duration-500 ${
                   quotaMode === 'exhausted' ? 'bg-red-500' : quotaMode === 'caution' ? 'bg-amber-500' : 'bg-emerald-500'
                 }`}
-                style={{ width: `${Math.min((dailyCalls / 90) * 100, 100)}%` }}
+                style={{ width: `${Math.min((dailyCalls / 2000) * 100, 100)}%` }}
               />
             </div>
             <div className="flex justify-between mt-1">
@@ -599,7 +599,7 @@ export default function Admin() {
               }`}>
                 {quotaMode === 'exhausted' ? 'Budget exhausted — syncs paused' : quotaMode === 'caution' ? 'Caution — nearing limit' : 'Healthy'}
               </span>
-              <span className="text-[10px] text-slate-400">Budget: 90 (saves 10 for manual)</span>
+              <span className="text-[10px] text-slate-400">Budget: 2000</span>
             </div>
           </div>
 
@@ -610,25 +610,25 @@ export default function Admin() {
               pollingMode === 'live' ? 'bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30' : 'bg-slate-50 dark:bg-slate-800/50'
             }`}>
               <p className={`text-xs font-semibold ${pollingMode === 'live' ? 'text-red-600 dark:text-red-400' : 'text-slate-400'}`}>Live Mode</p>
-              <p className={`text-[10px] mt-0.5 ${pollingMode === 'live' ? 'text-red-500' : 'text-slate-400'}`}>Every 5 min</p>
+              <p className={`text-[10px] mt-0.5 ${pollingMode === 'live' ? 'text-red-500' : 'text-slate-400'}`}>Every 30 sec</p>
             </div>
             <div className={`p-3 rounded-xl text-center ${
               pollingMode === 'window' ? 'bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30' : 'bg-slate-50 dark:bg-slate-800/50'
             }`}>
               <p className={`text-xs font-semibold ${pollingMode === 'window' ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400'}`}>Window Mode</p>
-              <p className={`text-[10px] mt-0.5 ${pollingMode === 'window' ? 'text-amber-500' : 'text-slate-400'}`}>Every 5 min</p>
+              <p className={`text-[10px] mt-0.5 ${pollingMode === 'window' ? 'text-amber-500' : 'text-slate-400'}`}>Every 30 sec (next 60 min)</p>
             </div>
             <div className={`p-3 rounded-xl text-center ${
               pollingMode === 'idle' ? 'bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30' : 'bg-slate-50 dark:bg-slate-800/50'
             }`}>
               <p className={`text-xs font-semibold ${pollingMode === 'idle' ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'}`}>Idle Mode</p>
-              <p className={`text-[10px] mt-0.5 ${pollingMode === 'idle' ? 'text-emerald-500' : 'text-slate-400'}`}>Fixture sync only</p>
+              <p className={`text-[10px] mt-0.5 ${pollingMode === 'idle' ? 'text-emerald-500' : 'text-slate-400'}`}>Fixtures every 30 min</p>
             </div>
           </div>
 
           <p className="text-[10px] text-slate-400 leading-relaxed">
-            Fixture sync runs every 60 min (24 req/day). Live sync runs every 5 min only during match windows — skipped when no match is live or about to kick off within 2.5 hours.
-            Worst case: 24 + 72 = 96, safely under the 100/day free plan limit.
+            Fixture sync runs every 30 min during idle periods. Live sync runs every 30 sec only when a match is live or due to kick off within the next 60 minutes.
+  If the page still does not show fresh timestamps, verify the Supabase cron job and deployed Edge Function are both updated.
           </p>
         </div>
       </RoundedCard>
@@ -683,7 +683,7 @@ export default function Admin() {
           <div className="flex justify-between items-center">
             <span className="text-slate-600 dark:text-slate-400">Live Match Now</span>
             <span className={hasLiveMatch ? 'text-red-500 font-semibold inline-flex items-center gap-1' : 'text-slate-500'}>
-              {hasLiveMatch && <Zap className="w-3.5 h-3.5" />} {hasLiveMatch ? 'Yes — live sync polls every 5 min' : 'No'}
+              {hasLiveMatch && <Zap className="w-3.5 h-3.5" />} {hasLiveMatch ? 'Yes — live sync polls every 30 sec' : 'No'}
             </span>
           </div>
           <div className="flex justify-between items-center">
