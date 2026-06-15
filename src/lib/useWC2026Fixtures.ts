@@ -132,12 +132,13 @@ export function useWC2026Fixtures() {
     const syncedByTeams = new Map<string, SyncedFixture>();
     const syncedByTeamPair = new Map<string, SyncedFixture>();
 
+    const pairKeyOf = (a: string, b: string) => [a, b].sort().join('-');
+
     for (const sf of syncedFixtures) {
       if (sf.match_number) syncedByMatchNumber.set(sf.match_number, sf);
       const dateKey = `${sf.home_team_code}-${sf.away_team_code}-${sf.kickoff_utc?.slice(0, 10)}`;
       syncedByTeams.set(dateKey, sf);
-      const pairKey = `${sf.home_team_code}-${sf.away_team_code}`;
-      syncedByTeamPair.set(pairKey, sf);
+      syncedByTeamPair.set(pairKeyOf(sf.home_team_code, sf.away_team_code), sf);
     }
 
     const consumed = new Set<string>();
@@ -150,10 +151,10 @@ export function useWC2026Fixtures() {
         synced = syncedByTeams.get(key);
       }
       if (!synced) {
-        // Fallback: match by team pair alone (handles UTC date-boundary
-        // differences between static schedule and provider kickoff times)
-        const pairKey = `${staticF.home}-${staticF.away}`;
-        synced = syncedByTeamPair.get(pairKey);
+        // Fallback: match by team pair regardless of home/away order or
+        // UTC date-boundary differences between static schedule and
+        // provider kickoff times.
+        synced = syncedByTeamPair.get(pairKeyOf(staticF.home, staticF.away));
       }
 
       if (synced) {
@@ -161,10 +162,26 @@ export function useWC2026Fixtures() {
         // Preserve static metadata (venue, city, group, matchday) since
         // football-data.org doesn't provide these; overlay live score/status.
         const syncedMerged = syncedToMerged(synced);
+
+        // If the provider's home/away order differs from our static
+        // schedule, swap scores/winner so they stay attributed to the
+        // correct team (home/away/group/venue/etc. stay as static).
+        const swapped = synced.home_team_code !== staticF.home;
+        const homeScore = swapped ? syncedMerged.awayScore : syncedMerged.homeScore;
+        const awayScore = swapped ? syncedMerged.homeScore : syncedMerged.awayScore;
+        let winnerCode = syncedMerged.winnerCode;
+        if (swapped && winnerCode === 'home') winnerCode = 'away';
+        else if (swapped && winnerCode === 'away') winnerCode = 'home';
+
         return {
           ...staticF,
           ...syncedMerged,
           id: staticF.id,
+          home: staticF.home,
+          away: staticF.away,
+          homeScore,
+          awayScore,
+          winnerCode,
           venue: syncedMerged.venue || staticF.venue,
           city: syncedMerged.city || staticF.city,
           group: syncedMerged.group || staticF.group,
