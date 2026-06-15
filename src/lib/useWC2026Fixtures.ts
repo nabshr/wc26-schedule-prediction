@@ -33,6 +33,7 @@ interface SyncRun {
   error_count: number;
   last_error: string | null;
   is_live_match: boolean;
+  metadata: Record<string, any> | null;
 }
 
 interface ProviderConfig {
@@ -41,6 +42,7 @@ interface ProviderConfig {
   competition_id: number;
   season: number;
   is_active: boolean;
+  provider_mode: string;
 }
 
 export interface MergedFixture extends WC2026Fixture {

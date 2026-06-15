@@ -7,7 +7,6 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
 };
 
-// Canonical team code mapping: API-Football team name -> our 3-letter code
 const TEAM_MAP: Record<string, string> = {
   "Mexico": "MEX", "Czechia": "CZE", "Czech Republic": "CZE",
   "South Africa": "RSA", "Korea Republic": "KOR", "South Korea": "KOR",
@@ -30,7 +29,6 @@ const TEAM_MAP: Record<string, string> = {
   "Croatia": "CRO", "Ghana": "GHA", "Panama": "PAN",
 };
 
-// Map API-Football stage/round names to our internal stage codes
 function mapStage(round: string): string {
   const r = round.toLowerCase();
   if (r.includes("group") || r.includes("league")) return "group";
@@ -43,7 +41,6 @@ function mapStage(round: string): string {
   return "group";
 }
 
-// Map API-Football short status to our internal match_status
 function mapStatus(shortStatus: string, longStatus: string): string {
   const s = shortStatus?.toLowerCase() || "";
   if (s === "ft" || s === "aet" || s === "pen" || s === "awd" || s === "wo") return "completed";
@@ -78,11 +75,11 @@ Deno.serve(async (req: Request) => {
   const apiKey = Deno.env.get("API_FOOTBALL_KEY");
   if (!apiKey) {
     return new Response(JSON.stringify({
-      error: "API_FOOTBALL_KEY not configured. Set this as a Supabase edge function secret.",
+      error: "API_FOOTBALL_KEY not configured.",
     }), { status: 500, headers: { "Content-Type": "application/json", ...corsHeaders } });
   }
 
-  // Rate limit guard: count today's API calls
+  // Rate limit guard
   const todayStart = new Date();
   todayStart.setUTCHours(0, 0, 0, 0);
   const { count: todayApiCalls } = await supabase
@@ -100,7 +97,7 @@ Deno.serve(async (req: Request) => {
     }), { headers: { "Content-Type": "application/json", ...corsHeaders } });
   }
 
-  // Concurrency guard: check if a sync is already running
+  // Concurrency guard
   const { data: runningSyncs } = await supabase
     .from("sync_runs")
     .select("id")
@@ -116,7 +113,7 @@ Deno.serve(async (req: Request) => {
     }), { headers: { "Content-Type": "application/json", ...corsHeaders } });
   }
 
-  // Create sync run record
+  // Create sync run
   const { data: syncRun } = await supabase
     .from("sync_runs")
     .insert({ sync_type: "fixtures", provider_name: "api-football", status: "running" })
@@ -126,7 +123,6 @@ Deno.serve(async (req: Request) => {
   const syncRunId = syncRun?.id;
 
   try {
-    // Get provider config
     const { data: config } = await supabase
       .from("provider_config")
       .select("*")
@@ -137,23 +133,71 @@ Deno.serve(async (req: Request) => {
     const competitionId = config?.competition_id || 1;
     const season = config?.season || 2026;
     const baseUrl = config?.base_url || "https://v3.football.api-sports.io";
+    const providerMode = config?.provider_mode || "fallback_on_failure";
 
-    // Fetch fixtures from API-Football
-    const url = `${baseUrl}/fixtures?league=${competitionId}&season=${season}`;
-    const response = await fetch(url, {
+    const requestUrl = `${baseUrl}/fixtures?league=${competitionId}&season=${season}`;
+
+    const response = await fetch(requestUrl, {
       headers: { "x-apisports-key": apiKey },
     });
 
+    // Capture rate-limit headers from API-Football
+    const providerMeta: Record<string, any> = {
+      request_url: requestUrl,
+      http_status: response.status,
+      league: competitionId,
+      season: season,
+    };
+
+    // API-Football returns rate-limit info in headers
+    const remaining = response.headers.get("x-ratelimit-requests-remaining");
+    const limit = response.headers.get("x-ratelimit-requests-limit");
+    if (remaining) providerMeta.rate_limit_remaining = parseInt(remaining);
+    if (limit) providerMeta.rate_limit_limit = parseInt(limit);
+
     if (!response.ok) {
-      throw new Error(`API-Football HTTP ${response.status}: ${await response.text()}`);
+      const errBody = await response.text();
+      providerMeta.error_body = errBody.slice(0, 500);
+      await supabase
+        .from("sync_runs")
+        .update({
+          status: "error",
+          finished_at: new Date().toISOString(),
+          last_error: `API-Football HTTP ${response.status}`,
+          error_count: 1,
+          metadata: providerMeta,
+        })
+        .eq("id", syncRunId);
+
+      // If primary fails and fallback mode, try backup
+      if (providerMode === "fallback_on_failure" || providerMode === "backup_only") {
+        return await tryBackupProvider(supabase, syncRunId, "fixtures", providerMeta);
+      }
+
+      return new Response(JSON.stringify({
+        error: `API-Football HTTP ${response.status}`,
+        provider_meta: providerMeta,
+      }), { status: 502, headers: { "Content-Type": "application/json", ...corsHeaders } });
     }
 
     const data = await response.json();
+
+    // API-Football wraps results: { response: [...], results: N }
     const apiFixtures = data.response || [];
+    providerMeta.results_count = data.results ?? apiFixtures.length;
+    providerMeta.api_message = data.message || null;
+    providerMeta.api_errors = data.errors || null;
+
+    // If primary returned 0 fixtures and fallback mode, try backup
+    if (apiFixtures.length === 0 && (providerMode === "fallback_on_failure")) {
+      providerMeta.primary_empty = true;
+      return await tryBackupProvider(supabase, syncRunId, "fixtures", providerMeta);
+    }
 
     let inserted = 0;
     let updated = 0;
     let errors = 0;
+    let skipped = 0;
     let unmappedTeams: string[] = [];
     let hasLiveMatch = false;
 
@@ -167,7 +211,7 @@ Deno.serve(async (req: Request) => {
         if (!homeCode || !awayCode) {
           if (!homeCode && homeName) unmappedTeams.push(homeName);
           if (!awayCode && awayName) unmappedTeams.push(awayName);
-          errors++;
+          skipped++;
           continue;
         }
 
@@ -200,6 +244,7 @@ Deno.serve(async (req: Request) => {
           provider_fixture_id: providerFixtureId,
           stage,
           group_name: groupName,
+          matchday: null,
           kickoff_utc: kickoff,
           venue: fixture.fixture?.venue?.name || null,
           city: fixture.fixture?.venue?.city || null,
@@ -213,9 +258,9 @@ Deno.serve(async (req: Request) => {
           winner_code: winnerCode,
           last_synced_at: new Date().toISOString(),
           raw_payload: fixture,
+          data_source: "api-football",
         };
 
-        // Upsert by provider_fixture_id
         const { error: upsertError } = await supabase
           .from("wc2026_fixtures")
           .upsert(row, {
@@ -224,47 +269,49 @@ Deno.serve(async (req: Request) => {
           });
 
         if (upsertError) {
-          // Check if it was an insert vs update
           errors++;
         } else {
-          // Count as update if fixture already existed
-          const { count } = await supabase
-            .from("wc2026_fixtures")
-            .select("*", { count: "exact", head: true })
-            .eq("provider_fixture_id", providerFixtureId);
           updated++;
         }
-      } catch (e: any) {
+      } catch {
         errors++;
       }
     }
 
-    // Recompute group standings from synced fixtures
-    await recomputeStandings(supabase);
+    // Recompute group standings
+    if (apiFixtures.length > 0) {
+      await recomputeStandings(supabase);
+    }
 
-    // Update sync run
+    providerMeta.inserted = inserted;
+    providerMeta.updated = updated;
+    providerMeta.skipped = skipped;
+    providerMeta.unmappedTeams = [...new Set(unmappedTeams)];
+
     await supabase
       .from("sync_runs")
       .update({
-        status: errors > 0 && apiFixtures.length === 0 ? "error" : "success",
+        status: errors > 0 && updated === 0 ? "error" : "success",
         finished_at: new Date().toISOString(),
         fixtures_fetched: apiFixtures.length,
         fixtures_inserted: inserted,
         fixtures_updated: updated,
         error_count: errors,
         is_live_match: hasLiveMatch,
-        metadata: { unmappedTeams: [...new Set(unmappedTeams)] },
+        metadata: providerMeta,
       })
       .eq("id", syncRunId);
 
     return new Response(JSON.stringify({
-      message: `Sync completed: ${apiFixtures.length} fixtures fetched, ${updated} upserted, ${errors} errors`,
+      message: `Sync completed: ${apiFixtures.length} fetched, ${updated} upserted, ${errors} errors, ${skipped} skipped`,
       fixtures_fetched: apiFixtures.length,
       fixtures_updated: updated,
       errors,
+      skipped,
       hasLiveMatch,
       unmappedTeams: [...new Set(unmappedTeams)],
       daily_calls: (todayApiCalls || 0) + 1,
+      provider_meta: providerMeta,
     }), {
       headers: { "Content-Type": "application/json", ...corsHeaders },
     });
@@ -279,13 +326,251 @@ Deno.serve(async (req: Request) => {
       })
       .eq("id", syncRunId);
 
-    return new Response(JSON.stringify({
-      error: err.message,
-    }), { status: 500, headers: { "Content-Type": "application/json", ...corsHeaders } });
+    return new Response(JSON.stringify({ error: err.message }), {
+      status: 500,
+      headers: { "Content-Type": "application/json", ...corsHeaders },
+    });
   }
 });
 
-// Recompute group standings from synced fixtures
+// Backup provider: football-data.org
+async function tryBackupProvider(
+  supabase: any,
+  syncRunId: string,
+  syncType: string,
+  primaryMeta: Record<string, any>
+) {
+  const backupKey = Deno.env.get("FOOTBALL_DATA_ORG_KEY");
+  if (!backupKey) {
+    await supabase
+      .from("sync_runs")
+      .update({
+        status: "error",
+        finished_at: new Date().toISOString(),
+        last_error: "Primary returned empty/error and no FOOTBALL_DATA_ORG_KEY configured for fallback",
+        error_count: 1,
+        metadata: { ...primaryMeta, fallback_attempted: true, fallback_available: false },
+      })
+      .eq("id", syncRunId);
+
+    return new Response(JSON.stringify({
+      error: "Primary failed and no backup key configured. Set FOOTBALL_DATA_ORG_KEY secret.",
+      primary_meta: primaryMeta,
+    }), { status: 502, headers: { "Content-Type": "application/json", ...corsHeaders } });
+  }
+
+  const backupMeta: Record<string, any> = {
+    provider: "football-data.org",
+    fallback_for: "api-football",
+    primary_meta: primaryMeta,
+  };
+
+  try {
+    // football-data.org World Cup 2026 competition
+    const url = "https://api.football-data.org/v4/competitions/WC/matches?season=2026";
+    const resp = await fetch(url, {
+      headers: { "X-Auth-Token": backupKey },
+    });
+
+    backupMeta.http_status = resp.status;
+    backupMeta.request_url = url;
+
+    if (!resp.ok) {
+      const errBody = await resp.text();
+      backupMeta.error_body = errBody.slice(0, 500);
+      await supabase
+        .from("sync_runs")
+        .update({
+          status: "error",
+          finished_at: new Date().toISOString(),
+          last_error: `Backup provider HTTP ${resp.status}`,
+          error_count: 1,
+          metadata: backupMeta,
+        })
+        .eq("id", syncRunId);
+
+      return new Response(JSON.stringify({
+        error: `Both primary and backup failed. Backup HTTP ${resp.status}`,
+        backup_meta: backupMeta,
+      }), { status: 502, headers: { "Content-Type": "application/json", ...corsHeaders } });
+    }
+
+    const data = await resp.json();
+    const matches = data.matches || [];
+    backupMeta.matches_count = matches.length;
+
+    let updated = 0;
+    let errors = 0;
+    let skipped = 0;
+    let unmappedTeams: string[] = [];
+
+    for (const match of matches) {
+      try {
+        // football-data.org uses different team name format
+        const homeName = match.homeTeam?.name || match.homeTeam?.shortName;
+        const awayName = match.awayTeam?.name || match.awayTeam?.shortName;
+        const homeCode = resolveTeamCode(homeName);
+        const awayCode = resolveTeamCode(awayName);
+
+        if (!homeCode || !awayCode) {
+          if (!homeCode && homeName) unmappedTeams.push(homeName);
+          if (!awayCode && awayName) unmappedTeams.push(awayName);
+          skipped++;
+          continue;
+        }
+
+        const kickoff = match.utcDate;
+        const status = match.status; // SCHEDULED, TIMED, IN_PLAY, PAUSED, FINISHED, POSTPONED, CANCELLED
+        let matchStatus = "scheduled";
+        if (status === "FINISHED") matchStatus = "completed";
+        else if (status === "IN_PLAY" || status === "PAUSED") matchStatus = "live";
+        else if (status === "POSTPONED" || status === "CANCELLED") matchStatus = "postponed";
+
+        const homeScore = match.score?.fullTime?.home ?? null;
+        const awayScore = match.score?.fullTime?.away ?? null;
+        const matchday = match.matchday || null;
+
+        let winnerCode: string | null = null;
+        if (matchStatus === "completed" && homeScore !== null && awayScore !== null) {
+          if (homeScore > awayScore) winnerCode = homeCode;
+          else if (awayScore > homeScore) winnerCode = awayCode;
+          else winnerCode = "draw";
+        }
+
+        // Derive stage and group from football-data.org match
+        const group = match.group; // e.g. "Group A"
+        let stage = "group";
+        let groupName: string | null = null;
+        if (group) {
+          const groupLetter = group.replace(/[^A-L]/g, "").slice(-1) || null;
+          groupName = groupLetter;
+          stage = "group";
+        } else {
+          // Knockout stage - try to map
+          const stageStr = (match.stage || "").toLowerCase();
+          if (stageStr.includes("round_of_32") || stageStr.includes("last_32")) stage = "r32";
+          else if (stageStr.includes("round_of_16") || stageStr.includes("last_16")) stage = "r16";
+          else if (stageStr.includes("quarter")) stage = "qf";
+          else if (stageStr.includes("semi")) stage = "sf";
+          else if (stageStr.includes("third") || stageStr.includes("3rd")) stage = "third";
+          else if (stageStr.includes("final")) stage = "final";
+        }
+
+        const providerFixtureId = `fd-${match.id}`;
+
+        // Only upsert if no existing record from primary provider, or this is clearly newer
+        const { data: existing } = await supabase
+          .from("wc2026_fixtures")
+          .select("data_source, home_score, away_score, match_status, last_synced_at")
+          .eq("home_team_code", homeCode)
+          .eq("away_team_code", awayCode)
+          .eq("kickoff_utc", kickoff)
+          .limit(1)
+          .maybeSingle();
+
+        // Priority: primary > backup. Only write if no existing primary record
+        if (existing && existing.data_source === "api-football") {
+          skipped++;
+          continue;
+        }
+
+        // Don't blank out existing scores
+        if (existing && homeScore === null && existing.home_score !== null) {
+          skipped++;
+          continue;
+        }
+
+        const row: Record<string, any> = {
+          provider_fixture_id: providerFixtureId,
+          stage,
+          group_name: groupName,
+          matchday,
+          kickoff_utc: kickoff,
+          venue: null,
+          city: null,
+          home_team_code: homeCode,
+          away_team_code: awayCode,
+          home_score: homeScore,
+          away_score: awayScore,
+          match_status: matchStatus,
+          status_detail: status,
+          match_minute: null,
+          winner_code: winnerCode,
+          last_synced_at: new Date().toISOString(),
+          data_source: "football-data.org",
+        };
+
+        // Use provider_fixture_id for upsert if no conflict; otherwise match on teams+kickoff
+        if (existing) {
+          const { error: updateError } = await supabase
+            .from("wc2026_fixtures")
+            .update(row)
+            .eq("home_team_code", homeCode)
+            .eq("away_team_code", awayCode)
+            .eq("kickoff_utc", kickoff);
+          if (updateError) errors++;
+          else updated++;
+        } else {
+          const { error: insertError } = await supabase
+            .from("wc2026_fixtures")
+            .insert(row);
+          if (insertError) errors++;
+          else updated++;
+        }
+      } catch {
+        errors++;
+      }
+    }
+
+    if (updated > 0) {
+      await recomputeStandings(supabase);
+    }
+
+    backupMeta.updated = updated;
+    backupMeta.skipped = skipped;
+    backupMeta.unmappedTeams = [...new Set(unmappedTeams)];
+
+    await supabase
+      .from("sync_runs")
+      .update({
+        status: updated > 0 ? "success" : "error",
+        finished_at: new Date().toISOString(),
+        fixtures_fetched: matches.length,
+        fixtures_updated: updated,
+        error_count: errors,
+        metadata: backupMeta,
+      })
+      .eq("id", syncRunId);
+
+    return new Response(JSON.stringify({
+      message: `Backup sync (football-data.org): ${matches.length} fetched, ${updated} upserted, ${errors} errors, ${skipped} skipped`,
+      provider: "football-data.org",
+      fixtures_fetched: matches.length,
+      fixtures_updated: updated,
+      errors,
+      skipped,
+      backup_meta: backupMeta,
+    }), {
+      headers: { "Content-Type": "application/json", ...corsHeaders },
+    });
+  } catch (err: any) {
+    await supabase
+      .from("sync_runs")
+      .update({
+        status: "error",
+        finished_at: new Date().toISOString(),
+        last_error: `Backup provider error: ${err.message}`,
+        error_count: 1,
+        metadata: backupMeta,
+      })
+      .eq("id", syncRunId);
+
+    return new Response(JSON.stringify({
+      error: `Backup provider error: ${err.message}`,
+    }), { status: 500, headers: { "Content-Type": "application/json", ...corsHeaders } });
+  }
+}
+
 async function recomputeStandings(supabase: any) {
   const { data: fixtures } = await supabase
     .from("wc2026_fixtures")
@@ -295,7 +580,6 @@ async function recomputeStandings(supabase: any) {
 
   if (!fixtures || fixtures.length === 0) return;
 
-  // Build standings per group
   const standingsMap: Record<string, Record<string, {
     played: number; won: number; drawn: number; lost: number;
     goalsFor: number; goalsAgainst: number; points: number;
@@ -304,27 +588,22 @@ async function recomputeStandings(supabase: any) {
   for (const f of fixtures) {
     if (f.home_score === null || f.away_score === null) continue;
     if (!f.group_name) continue;
-
     const group = f.group_name;
     if (!standingsMap[group]) standingsMap[group] = {};
-
     const home = f.home_team_code;
     const away = f.away_team_code;
     if (!standingsMap[group][home]) standingsMap[group][home] = { played: 0, won: 0, drawn: 0, lost: 0, goalsFor: 0, goalsAgainst: 0, points: 0 };
     if (!standingsMap[group][away]) standingsMap[group][away] = { played: 0, won: 0, drawn: 0, lost: 0, goalsFor: 0, goalsAgainst: 0, points: 0 };
-
     const h = standingsMap[group][home];
     const a = standingsMap[group][away];
     h.played++; a.played++;
     h.goalsFor += f.home_score; h.goalsAgainst += f.away_score;
     a.goalsFor += f.away_score; a.goalsAgainst += f.home_score;
-
     if (f.home_score > f.away_score) { h.won++; h.points += 3; a.lost++; }
     else if (f.home_score === f.away_score) { h.drawn++; h.points += 1; a.drawn++; a.points += 1; }
     else { a.won++; a.points += 3; h.lost++; }
   }
 
-  // Clear existing standings and rewrite
   await supabase.from("wc2026_standings").delete().neq("id", "00000000-0000-0000-0000-000000000000");
 
   for (const [group, teams] of Object.entries(standingsMap)) {
@@ -334,7 +613,6 @@ async function recomputeStandings(supabase: any) {
       if (gdB !== gdA) return gdB - gdA;
       return b.goalsFor - a.goalsFor;
     });
-
     for (let i = 0; i < sorted.length; i++) {
       const [code, s] = sorted[i];
       await supabase.from("wc2026_standings").insert({

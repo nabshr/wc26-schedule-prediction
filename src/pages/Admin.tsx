@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Database, Play, RefreshCw, CheckCircle2, AlertCircle, Loader2, Activity, Clock, Radio, Zap, Gauge } from 'lucide-react';
+import { Database, Play, RefreshCw, CheckCircle2, AlertCircle, Loader2, Activity, Clock, Radio, Zap, Gauge, Shield, Edit3, ArrowRight } from 'lucide-react';
 import SectionHeader from '../components/SectionHeader';
 import RoundedCard from '../components/RoundedCard';
 import GlassPanel from '../components/GlassPanel';
@@ -32,6 +32,13 @@ export default function Admin() {
   const [loading, setLoading] = useState(false);
   const [simRunning, setSimRunning] = useState(false);
   const [logs, setLogs] = useState<SyncLog[]>([]);
+  const [overrideHome, setOverrideHome] = useState('');
+  const [overrideAway, setOverrideAway] = useState('');
+  const [overrideHomeScore, setOverrideHomeScore] = useState('');
+  const [overrideAwayScore, setOverrideAwayScore] = useState('');
+  const [overrideDate, setOverrideDate] = useState('');
+  const [overrideSubmitting, setOverrideSubmitting] = useState(false);
+  const [providerMode, setProviderModeState] = useState<string>('');
 
   const {
     providerConfig,
@@ -134,6 +141,87 @@ export default function Admin() {
     }, 100);
   }
 
+  async function handleOverrideScore() {
+    if (!overrideHome || !overrideAway || overrideHomeScore === '' || overrideAwayScore === '' || !overrideDate) {
+      addLog({ action: 'Manual Override', status: 'error', message: 'All fields required (home, away, scores, date)', errors: 1 });
+      return;
+    }
+    setOverrideSubmitting(true);
+    addLog({ action: 'Manual Override', status: 'info', message: `Setting ${overrideHome} ${overrideHomeScore}-${overrideAwayScore} ${overrideAway}...` });
+    try {
+      const kickoffUtc = `${overrideDate}T18:00:00Z`;
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/admin-override`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}` },
+        body: JSON.stringify({
+          action: 'override_score',
+          home_team_code: overrideHome,
+          away_team_code: overrideAway,
+          kickoff_utc: kickoffUtc,
+          home_score: parseInt(overrideHomeScore),
+          away_score: parseInt(overrideAwayScore),
+        }),
+      });
+      const data = await res.json();
+      addLog({ action: 'Manual Override', status: res.ok ? 'success' : 'error', message: data.message || data.error, errors: res.ok ? 0 : 1 });
+      if (res.ok) {
+        setOverrideHome(''); setOverrideAway(''); setOverrideHomeScore(''); setOverrideAwayScore(''); setOverrideDate('');
+        refetchSyncData();
+      }
+    } catch (err: any) {
+      addLog({ action: 'Manual Override', status: 'error', message: err.message, errors: 1 });
+    } finally {
+      setOverrideSubmitting(false);
+    }
+  }
+
+  async function handleRecomputeStandings() {
+    addLog({ action: 'Recompute Standings', status: 'info', message: 'Recomputing group standings...' });
+    try {
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/admin-override`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}` },
+        body: JSON.stringify({ action: 'recompute_standings' }),
+      });
+      const data = await res.json();
+      addLog({ action: 'Recompute Standings', status: res.ok ? 'success' : 'error', message: data.message || data.error });
+    } catch (err: any) {
+      addLog({ action: 'Recompute Standings', status: 'error', message: err.message, errors: 1 });
+    }
+  }
+
+  async function handleSetProviderMode(mode: string) {
+    addLog({ action: 'Set Provider Mode', status: 'info', message: `Switching to ${mode}...` });
+    try {
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/admin-override`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}` },
+        body: JSON.stringify({ action: 'set_provider_mode', mode }),
+      });
+      const data = await res.json();
+      addLog({ action: 'Set Provider Mode', status: res.ok ? 'success' : 'error', message: data.message || data.error });
+      if (res.ok) setProviderModeState(mode);
+    } catch (err: any) {
+      addLog({ action: 'Set Provider Mode', status: 'error', message: err.message, errors: 1 });
+    }
+  }
+
+  async function handleBackupSync() {
+    addLog({ action: 'Backup Sync', status: 'info', message: 'Triggering backup provider sync...' });
+    try {
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/admin-override`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}` },
+        body: JSON.stringify({ action: 'backup_sync' }),
+      });
+      const data = await res.json();
+      addLog({ action: 'Backup Sync', status: res.ok ? 'success' : 'error', message: data.message || data.error, errors: res.ok ? 0 : 1 });
+      if (res.ok) refetchSyncData();
+    } catch (err: any) {
+      addLog({ action: 'Backup Sync', status: 'error', message: err.message, errors: 1 });
+    }
+  }
+
   // Format sync run info
   function formatSyncInfo(run: typeof lastFixtureSync) {
     if (!run) return { time: 'Never', status: 'N/A', updated: 0, errors: 0, errorMsg: null };
@@ -149,6 +237,21 @@ export default function Admin() {
 
   const fixtureSyncInfo = formatSyncInfo(lastFixtureSync);
   const liveSyncInfo = formatSyncInfo(lastLiveSync);
+
+  // Extract provider metadata from last fixture sync run
+  const lastFixtureMeta = useMemo(() => {
+    if (!lastFixtureSync?.metadata) return null;
+    try {
+      return typeof lastFixtureSync.metadata === 'string'
+        ? JSON.parse(lastFixtureSync.metadata)
+        : lastFixtureSync.metadata;
+    } catch { return null; }
+  }, [lastFixtureSync]);
+
+  // Sync provider mode from config
+  useEffect(() => {
+    if (providerConfig?.provider_mode) setProviderModeState(providerConfig.provider_mode);
+  }, [providerConfig?.provider_mode]);
 
   // Compute daily API usage and polling mode
   const { dailyCalls, pollingMode, quotaMode } = useMemo(() => {
@@ -389,8 +492,181 @@ export default function Admin() {
               {hasLiveMatch && <Zap className="w-3.5 h-3.5" />} {hasLiveMatch ? 'Yes — live sync polls every 5 min' : 'No'}
             </span>
           </div>
+          <div className="flex justify-between items-center">
+            <span className="text-slate-600 dark:text-slate-400">Provider Mode</span>
+            <select
+              value={providerMode}
+              onChange={e => handleSetProviderMode(e.target.value)}
+              className="text-xs px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300"
+            >
+              <option value="primary_only">Primary Only</option>
+              <option value="fallback_on_failure">Fallback on Failure</option>
+              <option value="backup_only">Backup Only</option>
+            </select>
+          </div>
+          {lastFixtureMeta && (
+            <>
+              <div className="border-t border-slate-200 dark:border-slate-700 pt-3" />
+              <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mb-2">Last Sync Metadata</p>
+              {lastFixtureMeta.http_status && (
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-600 dark:text-slate-400">HTTP Status</span>
+                  <span className={`font-semibold ${lastFixtureMeta.http_status === 200 ? 'text-emerald-600' : 'text-red-500'}`}>{lastFixtureMeta.http_status}</span>
+                </div>
+              )}
+              {lastFixtureMeta.rate_limit_remaining !== undefined && (
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-600 dark:text-slate-400">API Remaining Today</span>
+                  <span className={`font-semibold ${lastFixtureMeta.rate_limit_remaining > 20 ? 'text-emerald-600' : lastFixtureMeta.rate_limit_remaining > 5 ? 'text-amber-500' : 'text-red-500'}`}>{lastFixtureMeta.rate_limit_remaining} / {lastFixtureMeta.rate_limit_limit || '?'}</span>
+                </div>
+              )}
+              {lastFixtureMeta.results_count !== undefined && (
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-600 dark:text-slate-400">Fixtures in API Response</span>
+                  <span className="font-semibold text-slate-800 dark:text-slate-200">{lastFixtureMeta.results_count}</span>
+                </div>
+              )}
+              {lastFixtureMeta.api_message && (
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-600 dark:text-slate-400">API Message</span>
+                  <span className="text-xs text-amber-600 dark:text-amber-400">{lastFixtureMeta.api_message}</span>
+                </div>
+              )}
+              {lastFixtureMeta.request_url && (
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-600 dark:text-slate-400">Request URL</span>
+                  <span className="font-mono text-[9px] text-slate-500 max-w-[200px] truncate">{lastFixtureMeta.request_url}</span>
+                </div>
+              )}
+            </>
+          )}
         </div>
       </RoundedCard>
+
+      {/* Manual Override & Backup */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Manual Score Override */}
+        <RoundedCard hover={false}>
+          <SectionHeader title="Manual Score Override" subtitle="Enter final scores when API is unavailable" icon={<Edit3 className="w-5 h-5" />} />
+          <div className="mt-4 space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-[10px] text-slate-400 uppercase tracking-wider">Home Team</label>
+                <input
+                  type="text"
+                  value={overrideHome}
+                  onChange={e => setOverrideHome(e.target.value.toUpperCase())}
+                  placeholder="e.g. BRA"
+                  maxLength={3}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-700 dark:text-slate-300 placeholder:text-slate-400"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] text-slate-400 uppercase tracking-wider">Away Team</label>
+                <input
+                  type="text"
+                  value={overrideAway}
+                  onChange={e => setOverrideAway(e.target.value.toUpperCase())}
+                  placeholder="e.g. ARG"
+                  maxLength={3}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-700 dark:text-slate-300 placeholder:text-slate-400"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className="text-[10px] text-slate-400 uppercase tracking-wider">Home Score</label>
+                <input
+                  type="number"
+                  value={overrideHomeScore}
+                  onChange={e => setOverrideHomeScore(e.target.value)}
+                  placeholder="0"
+                  min={0}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-700 dark:text-slate-300"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] text-slate-400 uppercase tracking-wider">Away Score</label>
+                <input
+                  type="number"
+                  value={overrideAwayScore}
+                  onChange={e => setOverrideAwayScore(e.target.value)}
+                  placeholder="0"
+                  min={0}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-700 dark:text-slate-300"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] text-slate-400 uppercase tracking-wider">Date</label>
+                <input
+                  type="date"
+                  value={overrideDate}
+                  onChange={e => setOverrideDate(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-700 dark:text-slate-300"
+                />
+              </div>
+            </div>
+            <button
+              className="btn-primary w-full"
+              onClick={handleOverrideScore}
+              disabled={overrideSubmitting || !overrideHome || !overrideAway}
+            >
+              {overrideSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Shield className="w-4 h-4" />}
+              {overrideSubmitting ? 'Saving...' : 'Apply Manual Override'}
+            </button>
+            <p className="text-[10px] text-slate-400">
+              Manual overrides are marked with data_source=manual and is_manual_override=true.
+              Primary provider results can later overwrite manual data if they provide a completed result.
+            </p>
+          </div>
+        </RoundedCard>
+
+        {/* Backup & Recompute Controls */}
+        <RoundedCard hover={false}>
+          <SectionHeader title="Backup & Recompute" subtitle="Fallback sync and data recomputation" icon={<ArrowRight className="w-5 h-5" />} />
+          <div className="mt-4 space-y-3">
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/50">
+              <p className="text-xs font-semibold text-slate-800 dark:text-slate-200 mb-1">Backup Provider</p>
+              <p className="text-[10px] text-slate-500 dark:text-slate-400 mb-3">
+                football-data.org — slower updates, no live tracking. Useful when API-Football is down or rate-limited.
+                Requires FOOTBALL_DATA_ORG_KEY secret.
+              </p>
+              <button className="btn-secondary w-full text-sm" onClick={handleBackupSync} disabled={syncing}>
+                <RefreshCw className="w-3.5 h-3.5" /> Run Backup Sync Now
+              </button>
+            </div>
+
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/50">
+              <p className="text-xs font-semibold text-slate-800 dark:text-slate-200 mb-1">Recompute Standings</p>
+              <p className="text-[10px] text-slate-500 dark:text-slate-400 mb-3">
+                Recalculate group standings from existing fixture data. Use after manual overrides.
+              </p>
+              <button className="btn-secondary w-full text-sm" onClick={handleRecomputeStandings}>
+                <Activity className="w-3.5 h-3.5" /> Recompute Now
+              </button>
+            </div>
+
+            <div className="p-3 rounded-xl bg-amber-50/50 dark:bg-amber-500/5 border border-amber-200/50 dark:border-amber-500/20">
+              <p className="text-xs font-semibold text-amber-700 dark:text-amber-400 mb-1">Current Provider Mode</p>
+              <div className="flex items-center gap-2 mt-1">
+                <span className={`badge text-[9px] ${
+                  providerMode === 'primary_only' ? 'badge-brand' :
+                  providerMode === 'fallback_on_failure' ? 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400' :
+                  'bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400'
+                }`}>
+                  {providerMode === 'primary_only' ? 'Primary Only' : providerMode === 'fallback_on_failure' ? 'Fallback on Failure' : providerMode === 'backup_only' ? 'Backup Only' : 'Not set'}
+                </span>
+              </div>
+              <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-2">
+                {providerMode === 'primary_only' ? 'Only API-Football will be used. No fallback.' :
+                 providerMode === 'fallback_on_failure' ? 'API-Football primary, football-data.org fallback on errors or empty responses.' :
+                 providerMode === 'backup_only' ? 'Only football-data.org will be used. No API-Football calls.' :
+                 'Provider mode not configured. Default: fallback on failure.'}
+              </p>
+            </div>
+          </div>
+        </RoundedCard>
+      </div>
 
       {/* Database Stats */}
       <RoundedCard hover={false}>
