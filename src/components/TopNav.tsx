@@ -1,6 +1,6 @@
 import { Sun, Moon, Menu } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
-import logoLight from '../assets/wc26_light.jpg';
+import logoLight from '../assets/wc26_light.png';
 import logoDark from '../assets/wc26_dark.png';
 
 interface TopNavProps {
