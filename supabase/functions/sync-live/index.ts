@@ -29,6 +29,8 @@ const TEAM_MAP: Record<string, string> = {
   "Croatia": "CRO", "Ghana": "GHA", "Panama": "PAN",
 };
 
+const DAILY_API_BUDGET = 90; // leave headroom under 100
+
 function mapStatus(shortStatus: string): string {
   const s = shortStatus?.toLowerCase() || "";
   if (s === "ft" || s === "aet" || s === "pen" || s === "awd" || s === "wo") return "completed";
@@ -59,16 +61,55 @@ Deno.serve(async (req: Request) => {
     }), { status: 500, headers: { "Content-Type": "application/json", ...corsHeaders } });
   }
 
-  // Check if any matches are currently live in our DB
+  // --- Rate limit guard: count today's sync_runs that made API calls ---
+  const todayStart = new Date();
+  todayStart.setUTCHours(0, 0, 0, 0);
+  const { count: todayApiCalls } = await supabase
+    .from("sync_runs")
+    .select("*", { count: "exact", head: true })
+    .in("sync_type", ["fixtures", "live"])
+    .in("status", ["success", "running"])
+    .gte("started_at", todayStart.toISOString());
+
+  if ((todayApiCalls || 0) >= DAILY_API_BUDGET) {
+    return new Response(JSON.stringify({
+      message: `Daily API budget reached (${todayApiCalls}/${DAILY_API_BUDGET}). Skipping.`,
+      status: "rate_limited",
+      daily_calls: todayApiCalls,
+    }), { headers: { "Content-Type": "application/json", ...corsHeaders } });
+  }
+
+  // --- Live window guard: skip if no match is live AND no match is within a kickoff window ---
+  const now = new Date();
+  const windowStart = new Date(now.getTime() - 15 * 60 * 1000); // 15 min before now
+  const windowEnd = new Date(now.getTime() + 2.5 * 60 * 60 * 1000); // 2.5h after now (max match duration)
+
   const { data: liveFixtures } = await supabase
     .from("wc2026_fixtures")
     .select("provider_fixture_id")
     .eq("match_status", "live");
-
   const liveProviderIds = (liveFixtures || []).map((f: any) => f.provider_fixture_id).filter(Boolean);
+  const hasLive = liveProviderIds.length > 0;
 
-  // If no live matches and no recently-completed matches to confirm, do a lightweight check
-  // by fetching just live fixtures from the API
+  // Check if any scheduled match kicks off within the window
+  const { count: upcomingInWindow } = await supabase
+    .from("wc2026_fixtures")
+    .select("*", { count: "exact", head: true })
+    .eq("match_status", "scheduled")
+    .gte("kickoff_utc", windowStart.toISOString())
+    .lte("kickoff_utc", windowEnd.toISOString());
+
+  if (!hasLive && (upcomingInWindow || 0) === 0) {
+    return new Response(JSON.stringify({
+      message: "No live match and no kickoff within window. Skipping.",
+      status: "no_live_window",
+      has_live: false,
+      upcoming_in_window: 0,
+      daily_calls: todayApiCalls,
+    }), { headers: { "Content-Type": "application/json", ...corsHeaders } });
+  }
+
+  // --- Proceed with API call ---
   const { data: config } = await supabase
     .from("provider_config")
     .select("*")
@@ -80,17 +121,15 @@ Deno.serve(async (req: Request) => {
   const season = config?.season || 2026;
   const baseUrl = config?.base_url || "https://v3.football.api-sports.io";
 
-  // Create sync run
   const { data: syncRun } = await supabase
     .from("sync_runs")
-    .insert({ sync_type: "live", provider_name: "api-football", status: "running", is_live_match: liveProviderIds.length > 0 })
+    .insert({ sync_type: "live", provider_name: "api-football", status: "running", is_live_match: hasLive })
     .select("id")
     .single();
 
   const syncRunId = syncRun?.id;
 
   try {
-    // Fetch only live fixtures from API-Football (much lighter than full fixture list)
     const url = `${baseUrl}/fixtures?league=${competitionId}&season=${season}&live=all`;
     const response = await fetch(url, {
       headers: { "x-apisports-key": apiKey },
@@ -107,7 +146,6 @@ Deno.serve(async (req: Request) => {
     let errors = 0;
     let liveCount = 0;
 
-    // Process live fixtures from API
     for (const fixture of apiFixtures) {
       try {
         const homeName = fixture.teams?.home?.name;
@@ -155,12 +193,13 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // Check previously-live fixtures that might have finished since last poll
+    // Check previously-live fixtures that might have just finished
     for (const providerId of liveProviderIds) {
-      // If this fixture wasn't in the live API response, it might have just finished
       const wasInApiResponse = apiFixtures.some((f: any) => f.fixture?.id === providerId);
       if (!wasInApiResponse) {
-        // Fetch this specific fixture to get final result
+        // Only fetch individual fixture if we still have budget
+        if ((todayApiCalls || 0) + 1 >= DAILY_API_BUDGET) break;
+
         const checkUrl = `${baseUrl}/fixtures?id=${providerId}`;
         try {
           const checkResp = await fetch(checkUrl, { headers: { "x-apisports-key": apiKey } });
@@ -228,6 +267,7 @@ Deno.serve(async (req: Request) => {
       live_count: liveCount,
       updated,
       errors,
+      daily_calls: (todayApiCalls || 0) + 1,
     }), {
       headers: { "Content-Type": "application/json", ...corsHeaders },
     });

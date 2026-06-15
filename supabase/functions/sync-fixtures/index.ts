@@ -63,6 +63,8 @@ function getMatchMinute(fixture: any): number | null {
   return fixture.fixture?.status?.elapsed || null;
 }
 
+const DAILY_API_BUDGET = 90;
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
@@ -78,6 +80,24 @@ Deno.serve(async (req: Request) => {
     return new Response(JSON.stringify({
       error: "API_FOOTBALL_KEY not configured. Set this as a Supabase edge function secret.",
     }), { status: 500, headers: { "Content-Type": "application/json", ...corsHeaders } });
+  }
+
+  // Rate limit guard: count today's API calls
+  const todayStart = new Date();
+  todayStart.setUTCHours(0, 0, 0, 0);
+  const { count: todayApiCalls } = await supabase
+    .from("sync_runs")
+    .select("*", { count: "exact", head: true })
+    .in("sync_type", ["fixtures", "live"])
+    .in("status", ["success", "running"])
+    .gte("started_at", todayStart.toISOString());
+
+  if ((todayApiCalls || 0) >= DAILY_API_BUDGET) {
+    return new Response(JSON.stringify({
+      message: `Daily API budget reached (${todayApiCalls}/${DAILY_API_BUDGET}). Skipping.`,
+      status: "rate_limited",
+      daily_calls: todayApiCalls,
+    }), { headers: { "Content-Type": "application/json", ...corsHeaders } });
   }
 
   // Concurrency guard: check if a sync is already running
@@ -244,6 +264,7 @@ Deno.serve(async (req: Request) => {
       errors,
       hasLiveMatch,
       unmappedTeams: [...new Set(unmappedTeams)],
+      daily_calls: (todayApiCalls || 0) + 1,
     }), {
       headers: { "Content-Type": "application/json", ...corsHeaders },
     });

@@ -6,12 +6,12 @@ FIFA World Cup 2026 prediction and analytics dashboard.
 
 ## Live Match Sync
 
-The app uses **API-Football** (api-sports.io) as the single source of truth for live fixture data. Two Supabase Edge Functions handle syncing:
+The app uses **API-Football** (api-sports.io) as the single source of truth for live fixture data, operating within the **free plan limit of 100 requests/day**. Two Supabase Edge Functions handle syncing:
 
-- **`sync-fixtures`** — Fetches the full fixture list (all matches, all statuses). Runs every **30 minutes** via pg_cron.
-- **`sync-live`** — Fetches only live/in-progress matches (lighter payload). Runs every **30 seconds** via pg_cron.
+- **`sync-fixtures`** — Fetches the full fixture list (all matches, all statuses). Runs every **60 minutes** via pg_cron (24 requests/day).
+- **`sync-live`** — Fetches only live/in-progress matches. Runs every **5 minutes** via pg_cron, but **only during match windows** (when a match is live or about to kick off within 2.5 hours). Skipped entirely when idle.
 
-Both functions upsert into `wc2026_fixtures` (idempotent on `provider_fixture_id`) and recompute `wc2026_standings` for completed group matches. Sync runs are logged in `sync_runs` with status, error count, and timestamps.
+Both functions enforce a **daily API budget of 90 calls** (leaving 10 for manual triggers). If the budget is exhausted, syncs return `rate_limited` and skip the API call. Upserts are idempotent on `provider_fixture_id` and group standings are recomputed for completed matches. Sync runs are logged in `sync_runs` with status, error count, and timestamps.
 
 ### Required Secrets
 
@@ -43,8 +43,8 @@ Configured via `pg_cron` + `pg_net` in the Supabase database:
 
 | Job | Schedule | Function |
 |---|---|---|
-| `sync-wc2026-fixtures` | Every 30 min | `sync-fixtures` |
-| `sync-wc2026-live` | Every 30 sec | `sync-live` |
+| `sync-wc2026-fixtures` | Every 60 min | `sync-fixtures` |
+| `sync-wc2026-live` | Every 5 min (skipped when idle) | `sync-live` |
 
 ### Data Flow
 
