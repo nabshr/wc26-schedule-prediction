@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { useState } from 'react';
+import { X } from 'lucide-react';
 import { ThemeProvider } from './context/ThemeContext';
 import Sidebar from './components/Sidebar';
 import MobileNav from './components/MobileNav';
@@ -25,6 +26,7 @@ import { useTheme } from './context/ThemeContext';
 
 function AppLayout() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [showCreditBadge, setShowCreditBadge] = useState(true);
   const { theme } = useTheme();
 
   const currentLogo = theme === 'dark' ? logoDark : logoLight;
@@ -56,25 +58,35 @@ function AppLayout() {
           </Routes>
         </main>
 
-        <div className="fixed bottom-4 right-4 z-50">
-          <div className="glass-panel rounded-2xl px-3 py-2 shadow-lg border border-white/10 dark:border-white/10">
-            <div className="flex items-center gap-2">
-              <img
-                src={currentLogo}
-                alt="Nabin Shrestha logo"
-                className="h-7 w-7 object-contain rounded-md"
-              />
-              <div className="leading-tight">
-                <p className="text-[11px] font-semibold text-slate-900 dark:text-white whitespace-nowrap">
-                  © Nabin Shrestha
-                </p>
-                <p className="text-[10px] text-slate-500 dark:text-slate-300 whitespace-nowrap">
-                  FIFA World Cup 2026 Predictor
-                </p>
+        {showCreditBadge && (
+          <div className="fixed bottom-4 right-4 z-50">
+            <div className="relative glass-panel rounded-2xl px-3 py-2 pr-9 shadow-lg border border-white/10 dark:border-white/10">
+              <button
+                onClick={() => setShowCreditBadge(false)}
+                aria-label="Close"
+                className="absolute top-2 right-2 p-1 rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-700/60 transition-colors"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+        
+              <div className="flex items-center gap-2">
+                <img
+                  src={currentLogo}
+                  alt="Nabin Shrestha logo"
+                  className="h-7 w-7 object-contain rounded-md"
+                />
+                <div className="leading-tight">
+                  <p className="text-[11px] font-semibold text-slate-900 dark:text-white whitespace-nowrap">
+                    © Nabin Shrestha
+                  </p>
+                  <p className="text-[10px] text-slate-500 dark:text-slate-300 whitespace-nowrap">
+                    FIFA World Cup 2026 Predictor
+                  </p>
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );
