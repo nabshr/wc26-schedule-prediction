@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&display=swap');
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -35,6 +36,12 @@
 }
 
 @layer components {
+  .fifa-brand-title {
+    font-family: 'Oswald', sans-serif;
+    letter-spacing: 0.01em;
+    line-height: 1;
+  }
+
   .glass-panel {
     @apply bg-white/70 dark:bg-slate-800/60 backdrop-blur-xl border border-slate-200/50 dark:border-slate-700/50;
   }
