@@ -33,6 +33,9 @@ interface MobileNavProps {
 export default function MobileNav({ open, onClose }: MobileNavProps) {
   if (!open) return null;
 
+  const { theme } = useTheme();
+  const championLogo = theme === 'dark' ? logoDark : logoLight;
+
   return (
     <div className="fixed inset-0 z-50 lg:hidden">
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
