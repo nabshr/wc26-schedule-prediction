@@ -5,6 +5,10 @@ import RoundedCard from '../components/RoundedCard';
 import TeamBadge from '../components/TeamBadge';
 import { GROUP_NAMES, getTeamByCode } from '../data/worldCup2026';
 import { simulateGroupStage, type GroupProbabilities } from '../lib/prediction';
+import { useTheme } from '../context/ThemeContext';
+import logoLight from '../assets/wc26_light.png';
+import logoDark from '../assets/wc26_dark.png';
+
 
 interface BracketSlot {
   code: string;
@@ -97,6 +101,9 @@ function BracketMatch({ slotA, slotB }: { slotA: BracketSlot | null; slotB: Brac
 export default function Bracket() {
   const sim = useMemo(() => simulateGroupStage(30000, 2026), []);
   const positions = useMemo(() => getProjectedGroupPositions(sim), [sim]);
+
+  const { theme } = useTheme();
+  const championLogo = theme === 'dark' ? logoDark : logoLight;
 
   // Build projected bracket slots
   const r32TopHalf = useMemo(() => {
@@ -241,7 +248,11 @@ export default function Bracket() {
             {/* Champion */}
             <div className="flex flex-col items-center justify-center min-w-[80px]">
               <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-gold-400 to-gold-600 flex items-center justify-center shadow-glow-gold">
-                <Trophy className="w-7 h-7 text-white" />
+                <img
+                  src={championLogo}
+                  alt="FIFA World Cup 2026 logo"
+                  className="w-full h-full object-contain"
+                />
               </div>
               <p className="mt-2 text-xs font-semibold text-gold-600 dark:text-gold-400">Champion</p>
               <p className="text-[10px] text-slate-400">TBD</p>
