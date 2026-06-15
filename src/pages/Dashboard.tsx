@@ -4,6 +4,7 @@ import StatCard from '../components/StatCard';
 import SectionHeader from '../components/SectionHeader';
 import RoundedCard from '../components/RoundedCard';
 import GlassPanel from '../components/GlassPanel';
+import UpcomingMatches from '../components/UpcomingMatches';
 import TeamBadge from '../components/TeamBadge';
 import ProbabilityBar from '../components/ProbabilityBar';
 import { WC2026_TEAMS, GROUP_NAMES } from '../data/worldCup2026';
@@ -34,6 +35,8 @@ export default function Dashboard() {
         <StatCard label="Avg Advance %" value={`${avgAdvance.toFixed(1)}%`} icon={<Target className="w-5 h-5" />} accent="success" />
         <StatCard label="Qualified Teams" value="48" icon={<Shield className="w-5 h-5" />} accent="accent" />
       </div>
+
+      <UpcomingMatches />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2">
