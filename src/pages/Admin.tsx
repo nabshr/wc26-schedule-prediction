@@ -373,15 +373,15 @@ export default function Admin() {
   const todayStart = new Date();
   todayStart.setUTCHours(0, 0, 0, 0);
 
-  // const todayRuns = (syncRuns || []).filter(r => {
-  //   const started = new Date(r.started_at);
-  //   return started >= todayStart && (r.status === 'success' || r.status === 'running');
-  // });
-
-  const todayRuns = syncRuns.filter(r => {
+  const todayRuns = (syncRuns || []).filter(r => {
     const started = new Date(r.started_at);
-      return started >= todayStart;
+    return started >= todayStart && (r.status === 'success' || r.status === 'running');
   });
+
+  // const todayRuns = syncRuns.filter(r => {
+  //   const started = new Date(r.started_at);
+  //     return started >= todayStart;
+  // });
 
   const calls = todayRuns.length;
   const budget = 2000;
