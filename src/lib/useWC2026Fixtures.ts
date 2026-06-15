@@ -112,19 +112,17 @@ export function useWC2026Fixtures() {
   useEffect(() => { fetchSyncedData(); }, [fetchSyncedData]);
 
   // Merge: Supabase-synced data overrides static data where available
-  const { mergedFixtures, consumedSyncedKeys } = useMemo(() => {
+  const mergedFixtures = useMemo<MergedFixture[]>(() => {
     if (syncedFixtures.length === 0) {
-      return {
-        mergedFixtures: WC2026_FIXTURES.map(f => ({
-          ...f,
-          matchMinute: null,
-          statusDetail: null,
-          winnerCode: null,
-          lastSyncedAt: null,
-          syncedFromProvider: false,
-        })) as MergedFixture[],
-        consumedSyncedKeys: new Set<string>(),
-      };
+      // No synced data yet — use static data
+      return WC2026_FIXTURES.map(f => ({
+        ...f,
+        matchMinute: null,
+        statusDetail: null,
+        winnerCode: null,
+        lastSyncedAt: null,
+        syncedFromProvider: false,
+      }));
     }
 
     // Build lookup from synced fixtures by match_number or team pairing
@@ -137,10 +135,8 @@ export function useWC2026Fixtures() {
       syncedByTeams.set(key, sf);
     }
 
-    const consumed = new Set<string>();
-
     // Map static fixtures to merged, preferring synced data
-    const merged = WC2026_FIXTURES.map(staticF => {
+    return WC2026_FIXTURES.map(staticF => {
       let synced = syncedByMatchNumber.get(staticF.id);
       if (!synced) {
         const key = `${staticF.home}-${staticF.away}-${staticF.date}`;
@@ -148,13 +144,7 @@ export function useWC2026Fixtures() {
       }
 
       if (synced) {
-        consumed.add(synced.id);
-        // Preserve static id/metadata, overlay live data from sync
-        return {
-          ...staticF,
-          ...syncedToMerged(synced),
-          id: staticF.id,
-        };
+        return syncedToMerged(synced);
       }
 
       return {
@@ -166,17 +156,16 @@ export function useWC2026Fixtures() {
         syncedFromProvider: false,
       };
     });
-
-    return { mergedFixtures: merged as MergedFixture[], consumedSyncedKeys: consumed };
   }, [syncedFixtures]);
 
-  // Also include any synced fixtures not matched to static data (e.g. newly scheduled knockout matches)
+  // Also include any synced fixtures not in static data (e.g. newly scheduled knockout matches)
   const allFixtures = useMemo(() => {
+    const staticIds = new Set(WC2026_FIXTURES.map(f => f.id));
     const extras = syncedFixtures
-      .filter(sf => !consumedSyncedKeys.has(sf.id))
+      .filter(sf => !sf.match_number || !staticIds.has(sf.match_number))
       .map(sf => syncedToMerged(sf));
     return [...mergedFixtures, ...extras];
-  }, [mergedFixtures, syncedFixtures, consumedSyncedKeys]);
+  }, [mergedFixtures, syncedFixtures]);
 
   // Get latest sync run of each type
   const lastFixtureSync = syncRuns.find(r => r.sync_type === 'fixtures');
