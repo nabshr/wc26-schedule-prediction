@@ -73,6 +73,12 @@ Deno.serve(async (req: Request) => {
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
   );
 
+  let forceBackup = false;
+  try {
+    const body = await req.json();
+    forceBackup = body?.force_backup === true;
+  } catch {}
+
   const apiKey = Deno.env.get("API_FOOTBALL_KEY");
   if (!apiKey) {
     return new Response(JSON.stringify({
@@ -115,11 +121,24 @@ Deno.serve(async (req: Request) => {
   }
 
   // Create sync run
+  const initialProvider = forceBackup ? "football-data.org" : "api-football";
+
   const { data: syncRun } = await supabase
     .from("sync_runs")
-    .insert({ sync_type: "fixtures", provider_name: "api-football", status: "running" })
+    .insert({
+      sync_type: "fixtures",
+      provider_name: initialProvider,
+      status: "running",
+      metadata: {
+        force_backup: forceBackup,
+        primary_attempted: !forceBackup,
+        fallback_attempted: false,
+        provider_used: initialProvider,
+      },
+    })
     .select("id")
     .single();
+
 
   const syncRunId = syncRun?.id;
 
@@ -135,6 +154,15 @@ Deno.serve(async (req: Request) => {
     const season = config?.season || 2026;
     const baseUrl = config?.base_url || "https://v3.football.api-sports.io";
     const providerMode = config?.provider_mode || "fallback_on_failure";
+
+    if (forceBackup || providerMode === "backup_only") {
+      return await tryBackupProvider(supabase, syncRunId, "fixtures", {
+        force_backup: forceBackup,
+        provider_mode: providerMode,
+        primary_skipped: true,
+      });
+    }
+
 
     const requestUrl = `${baseUrl}/fixtures?league=${competitionId}&season=${season}`;
 
@@ -555,16 +583,22 @@ async function tryBackupProvider(
     backupMeta.unmappedTeams = [...new Set(unmappedTeams)];
 
     await supabase
-      .from("sync_runs")
-      .update({
-        status: updated > 0 ? "success" : "error",
-        finished_at: new Date().toISOString(),
-        fixtures_fetched: matches.length,
-        fixtures_updated: updated,
-        error_count: errors,
-        metadata: backupMeta,
-      })
-      .eq("id", syncRunId);
+    .from("sync_runs")
+    .update({
+      provider_name: "football-data.org",
+      status: updated > 0 ? "success" : "error",
+      finished_at: new Date().toISOString(),
+      fixtures_fetched: matches.length,
+      fixtures_updated: updated,
+      error_count: errors,
+      metadata: {
+        ...backupMeta,
+        provider_used: "football-data.org",
+        fallback_attempted: true,
+        fallback_succeeded: updated > 0,
+      },
+    })
+    .eq("id", syncRunId);
 
     return new Response(JSON.stringify({
       message: `Backup sync (football-data.org): ${matches.length} fetched, ${updated} upserted, ${errors} errors, ${skipped} skipped`,
