@@ -39,7 +39,7 @@ function TeamFocusSelector({
     <div className="relative" ref={ref}>
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-surface-dark-100 text-sm hover:border-brand-500/40 transition-colors"
+        className="flex min-w-[220px] items-center justify-between gap-2 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-surface-dark-100 text-sm hover:border-brand-500/40 transition-colors"
       >
         {selectedTeam ? (
           <TeamBadge name={selectedTeam.name} code={selectedTeam.code} size="sm" />
