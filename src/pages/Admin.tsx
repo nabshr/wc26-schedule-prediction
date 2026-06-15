@@ -1,5 +1,23 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Database, Play, RefreshCw, CheckCircle2, AlertCircle, Loader2, Activity, Clock, Radio, Zap, Gauge, Shield, Edit3, ArrowRight } from 'lucide-react';
+import type { User } from '@supabase/supabase-js';
+import {
+  Database,
+  Play,
+  RefreshCw,
+  CheckCircle2,
+  AlertCircle,
+  Loader2,
+  Activity,
+  Radio,
+  Zap,
+  Gauge,
+  Shield,
+  Edit3,
+  ArrowRight,
+  LogIn,
+  LogOut,
+  Lock
+} from 'lucide-react';
 import SectionHeader from '../components/SectionHeader';
 import RoundedCard from '../components/RoundedCard';
 import GlassPanel from '../components/GlassPanel';
@@ -27,6 +45,8 @@ interface SyncLog {
   errors?: number;
 }
 
+const ADMIN_EMAIL = 'nabshr.ns@gmail.com';
+
 export default function Admin() {
   const [stats, setStats] = useState<DbStats | null>(null);
   const [loading, setLoading] = useState(false);
@@ -40,6 +60,9 @@ export default function Admin() {
   const [overrideSubmitting, setOverrideSubmitting] = useState(false);
   const [providerMode, setProviderModeState] = useState<string>('');
 
+  const [authLoading, setAuthLoading] = useState(true);
+  const [user, setUser] = useState<User | null>(null);
+
   const {
     providerConfig,
     lastFixtureSync,
@@ -52,6 +75,9 @@ export default function Admin() {
     fixtures,
   } = useWC2026Fixtures();
 
+  const email = user?.email?.toLowerCase() ?? '';
+  const isAuthorized = email === ADMIN_EMAIL;
+
   const addLog = useCallback((entry: Omit<SyncLog, 'timestamp'>) => {
     setLogs(prev => [{
       timestamp: new Date().toLocaleTimeString('en-US', { hour12: false }),
@@ -59,9 +85,48 @@ export default function Admin() {
     }, ...prev].slice(0, 50));
   }, []);
 
+  useEffect(() => {
+    let mounted = true;
+
+    supabase.auth.getUser().then(({ data, error }) => {
+      if (!mounted) return;
+      setUser(error ? null : (data.user ?? null));
+      setAuthLoading(false);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (!mounted) return;
+      setUser(session?.user ?? null);
+      setAuthLoading(false);
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  async function handleGoogleSignIn() {
+    await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: `${window.location.origin}${window.location.pathname}`,
+      },
+    });
+  }
+
+  async function handleSignOut() {
+    await supabase.auth.signOut();
+  }
+
   const loadStats = useCallback(async () => {
+    if (!isAuthorized) return;
+
     setLoading(true);
     addLog({ action: 'Load Stats', status: 'info', message: 'Fetching database record counts...' });
+
     try {
       const tables = ['tournaments', 'teams', 'matches', 'stages', 'group_standings', 'tournament_teams'] as const;
       const counts = await Promise.all(
@@ -71,26 +136,44 @@ export default function Admin() {
           return count || 0;
         })
       );
+
       setStats({
-        tournaments: counts[0], teams: counts[1], matches: counts[2],
-        stages: counts[3], group_standings: counts[4], tournament_teams: counts[5],
+        tournaments: counts[0],
+        teams: counts[1],
+        matches: counts[2],
+        stages: counts[3],
+        group_standings: counts[4],
+        tournament_teams: counts[5],
       });
+
       addLog({ action: 'Load Stats', status: 'success', message: `Loaded counts for ${tables.length} tables` });
     } catch (err: any) {
       addLog({ action: 'Load Stats', status: 'error', message: err.message || 'Failed to load stats', errors: 1 });
     } finally {
       setLoading(false);
     }
-  }, [addLog]);
+  }, [addLog, isAuthorized]);
 
-  useEffect(() => { loadStats(); }, [loadStats]);
+  useEffect(() => {
+    if (isAuthorized) loadStats();
+  }, [loadStats, isAuthorized]);
+
+  async function getAuthHeaders() {
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+
+    return {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    };
+  }
 
   async function handleSyncHistory() {
     addLog({ action: 'Sync History', status: 'info', message: 'Starting historical data sync...' });
     try {
       const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/sync-history`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}` },
+        headers: await getAuthHeaders(),
       });
       const data = await res.json();
       if (res.ok) {
@@ -129,10 +212,15 @@ export default function Admin() {
   function handleRunSimulation() {
     setSimRunning(true);
     addLog({ action: 'Run Simulation', status: 'info', message: 'Starting 30K Monte Carlo simulation...' });
+
     setTimeout(() => {
       try {
         const result = simulateGroupStage(30000, 2026);
-        addLog({ action: 'Run Simulation', status: 'success', message: `Completed ${result.simulationRuns.toLocaleString()} runs (${result.modelVersion})` });
+        addLog({
+          action: 'Run Simulation',
+          status: 'success',
+          message: `Completed ${result.simulationRuns.toLocaleString()} runs (${result.modelVersion})`,
+        });
       } catch (err: any) {
         addLog({ action: 'Run Simulation', status: 'error', message: err.message || 'Simulation failed', errors: 1 });
       } finally {
@@ -146,13 +234,19 @@ export default function Admin() {
       addLog({ action: 'Manual Override', status: 'error', message: 'All fields required (home, away, scores, date)', errors: 1 });
       return;
     }
+
     setOverrideSubmitting(true);
-    addLog({ action: 'Manual Override', status: 'info', message: `Setting ${overrideHome} ${overrideHomeScore}-${overrideAwayScore} ${overrideAway}...` });
+    addLog({
+      action: 'Manual Override',
+      status: 'info',
+      message: `Setting ${overrideHome} ${overrideHomeScore}-${overrideAwayScore} ${overrideAway}...`,
+    });
+
     try {
       const kickoffUtc = `${overrideDate}T18:00:00Z`;
       const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/admin-override`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}` },
+        headers: await getAuthHeaders(),
         body: JSON.stringify({
           action: 'override_score',
           home_team_code: overrideHome,
@@ -162,10 +256,21 @@ export default function Admin() {
           away_score: parseInt(overrideAwayScore),
         }),
       });
+
       const data = await res.json();
-      addLog({ action: 'Manual Override', status: res.ok ? 'success' : 'error', message: data.message || data.error, errors: res.ok ? 0 : 1 });
+      addLog({
+        action: 'Manual Override',
+        status: res.ok ? 'success' : 'error',
+        message: data.message || data.error,
+        errors: res.ok ? 0 : 1,
+      });
+
       if (res.ok) {
-        setOverrideHome(''); setOverrideAway(''); setOverrideHomeScore(''); setOverrideAwayScore(''); setOverrideDate('');
+        setOverrideHome('');
+        setOverrideAway('');
+        setOverrideHomeScore('');
+        setOverrideAwayScore('');
+        setOverrideDate('');
         refetchSyncData();
       }
     } catch (err: any) {
@@ -180,7 +285,7 @@ export default function Admin() {
     try {
       const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/admin-override`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}` },
+        headers: await getAuthHeaders(),
         body: JSON.stringify({ action: 'recompute_standings' }),
       });
       const data = await res.json();
@@ -195,7 +300,7 @@ export default function Admin() {
     try {
       const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/admin-override`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}` },
+        headers: await getAuthHeaders(),
         body: JSON.stringify({ action: 'set_provider_mode', mode }),
       });
       const data = await res.json();
@@ -211,18 +316,22 @@ export default function Admin() {
     try {
       const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/admin-override`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}` },
+        headers: await getAuthHeaders(),
         body: JSON.stringify({ action: 'backup_sync' }),
       });
       const data = await res.json();
-      addLog({ action: 'Backup Sync', status: res.ok ? 'success' : 'error', message: data.message || data.error, errors: res.ok ? 0 : 1 });
+      addLog({
+        action: 'Backup Sync',
+        status: res.ok ? 'success' : 'error',
+        message: data.message || data.error,
+        errors: res.ok ? 0 : 1,
+      });
       if (res.ok) refetchSyncData();
     } catch (err: any) {
       addLog({ action: 'Backup Sync', status: 'error', message: err.message, errors: 1 });
     }
   }
 
-  // Format sync run info
   function formatSyncInfo(run: typeof lastFixtureSync) {
     if (!run) return { time: 'Never', status: 'N/A', updated: 0, errors: 0, errorMsg: null };
     const finished = run.finished_at ? new Date(run.finished_at).toLocaleTimeString('en-US', { hour12: false }) : 'In progress';
@@ -238,33 +347,35 @@ export default function Admin() {
   const fixtureSyncInfo = formatSyncInfo(lastFixtureSync);
   const liveSyncInfo = formatSyncInfo(lastLiveSync);
 
-  // Extract provider metadata from last fixture sync run
   const lastFixtureMeta = useMemo(() => {
     if (!lastFixtureSync?.metadata) return null;
     try {
       return typeof lastFixtureSync.metadata === 'string'
         ? JSON.parse(lastFixtureSync.metadata)
         : lastFixtureSync.metadata;
-    } catch { return null; }
+    } catch {
+      return null;
+    }
   }, [lastFixtureSync]);
 
-  // Sync provider mode from config
   useEffect(() => {
     if (providerConfig?.provider_mode) setProviderModeState(providerConfig.provider_mode);
   }, [providerConfig?.provider_mode]);
 
-  // Compute daily API usage and polling mode
   const { dailyCalls, pollingMode, quotaMode } = useMemo(() => {
     const todayStart = new Date();
     todayStart.setUTCHours(0, 0, 0, 0);
+
     const todayRuns = (syncRuns || []).filter(r => {
       const started = new Date(r.started_at);
       return started >= todayStart && (r.status === 'success' || r.status === 'running');
     });
+
     const calls = todayRuns.length;
     const budget = 90;
 
     let mode: 'live' | 'window' | 'idle';
+
     if (hasLiveMatch) {
       mode = 'live';
     } else {
@@ -286,16 +397,91 @@ export default function Admin() {
     return { dailyCalls: calls, pollingMode: mode, quotaMode: qMode };
   }, [syncRuns, hasLiveMatch, fixtures]);
 
+  if (authLoading) {
+    return (
+      <div className="min-h-[70vh] flex items-center justify-center animate-fade-in">
+        <div className="w-full max-w-md">
+          <GlassPanel className="p-8 text-center">
+            <div className="w-14 h-14 rounded-2xl bg-brand-500/10 dark:bg-brand-500/20 flex items-center justify-center mx-auto mb-4">
+              <Loader2 className="w-6 h-6 text-brand-500 dark:text-brand-400 animate-spin" />
+            </div>
+            <h2 className="text-xl font-bold text-slate-900 dark:text-white">Checking access</h2>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">
+              Verifying your admin session...
+            </p>
+          </GlassPanel>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="min-h-[70vh] flex items-center justify-center animate-fade-in">
+        <div className="w-full max-w-md">
+          <GlassPanel className="p-8 text-center">
+            <div className="w-14 h-14 rounded-2xl bg-brand-500/10 dark:bg-brand-500/20 flex items-center justify-center mx-auto mb-4">
+              <Lock className="w-6 h-6 text-brand-500 dark:text-brand-400" />
+            </div>
+            <h2 className="text-xl font-bold text-slate-900 dark:text-white">Admin access required</h2>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-2 mb-6">
+              Sign in with Google to continue to the admin panel.
+            </p>
+            <button className="btn-primary w-full justify-center" onClick={handleGoogleSignIn}>
+              <LogIn className="w-4 h-4" />
+              Sign in with Google
+            </button>
+          </GlassPanel>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthorized) {
+    return (
+      <div className="min-h-[70vh] flex items-center justify-center animate-fade-in">
+        <div className="w-full max-w-md">
+          <GlassPanel className="p-8 text-center">
+            <div className="w-14 h-14 rounded-2xl bg-red-500/10 dark:bg-red-500/20 flex items-center justify-center mx-auto mb-4">
+              <Shield className="w-6 h-6 text-red-500 dark:text-red-400" />
+            </div>
+            <h2 className="text-xl font-bold text-slate-900 dark:text-white">Not authorized</h2>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">
+              You are signed in as <span className="font-medium">{user.email}</span>, but this admin panel is restricted.
+            </p>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-2 mb-6">
+              Only the approved Google account can access this page.
+            </p>
+            <button className="btn-secondary w-full justify-center" onClick={handleSignOut}>
+              <LogOut className="w-4 h-4" />
+              Sign out
+            </button>
+          </GlassPanel>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 animate-fade-in">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Admin</h1>
-        <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Model management and data pipeline controls</p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Admin</h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+            Model management and data pipeline controls
+          </p>
+          <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-2">
+            Signed in as {user.email}
+          </p>
+        </div>
+        <button className="btn-ghost" onClick={handleSignOut}>
+          <LogOut className="w-4 h-4" />
+          Sign out
+        </button>
       </div>
 
       {/* Sync Controls */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Sync Fixtures */}
         <GlassPanel>
           <div className="flex items-center gap-3 mb-4">
             <div className="w-10 h-10 rounded-xl bg-brand-500/10 dark:bg-brand-500/20 flex items-center justify-center">
@@ -324,7 +510,6 @@ export default function Admin() {
           </div>
         </GlassPanel>
 
-        {/* Sync Live */}
         <GlassPanel>
           <div className="flex items-center gap-3 mb-4">
             <div className={`w-10 h-10 rounded-xl ${hasLiveMatch ? 'bg-red-500/10 dark:bg-red-500/20' : 'bg-slate-500/10 dark:bg-slate-500/20'} flex items-center justify-center`}>
@@ -351,7 +536,6 @@ export default function Admin() {
           </div>
         </GlassPanel>
 
-        {/* Run Simulation */}
         <GlassPanel>
           <div className="flex items-center gap-3 mb-4">
             <div className="w-10 h-10 rounded-xl bg-gold-500/10 dark:bg-gold-500/20 flex items-center justify-center">
@@ -368,7 +552,6 @@ export default function Admin() {
           </button>
         </GlassPanel>
 
-        {/* Sync History */}
         <GlassPanel>
           <div className="flex items-center gap-3 mb-4">
             <div className="w-10 h-10 rounded-xl bg-accent/10 dark:bg-accent/20 flex items-center justify-center">
@@ -385,7 +568,6 @@ export default function Admin() {
         </GlassPanel>
       </div>
 
-      {/* API Quota & Polling Mode */}
       <RoundedCard hover={false}>
         <SectionHeader title="API Quota & Polling Mode" subtitle="Free plan: 100 requests/day — managed automatically" icon={<Gauge className="w-5 h-5" />} />
         <div className="mt-4 space-y-4">
@@ -444,7 +626,6 @@ export default function Admin() {
         </div>
       </RoundedCard>
 
-      {/* Sync Health */}
       <RoundedCard hover={false}>
         <SectionHeader title="Sync Health" subtitle="Provider status and last sync results" icon={<Activity className="w-5 h-5" />} />
         <div className="mt-4 space-y-3 text-sm">
@@ -470,11 +651,17 @@ export default function Admin() {
           <div className="flex justify-between items-center">
             <span className="text-slate-600 dark:text-slate-400">Last Fixture Sync</span>
             <span className={`font-semibold ${fixtureSyncInfo.status === 'success' ? 'text-emerald-600 dark:text-emerald-400' : fixtureSyncInfo.status === 'error' ? 'text-red-500' : 'text-slate-500'}`}>
-              {fixtureSyncInfo.status === 'success' ? <span className="inline-flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" /> {fixtureSyncInfo.time}</span> : fixtureSyncInfo.status === 'error' ? <span className="inline-flex items-center gap-1"><AlertCircle className="w-3.5 h-3.5" /> {fixtureSyncInfo.time}</span> : 'Never'}
+              {fixtureSyncInfo.status === 'success'
+                ? <span className="inline-flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" /> {fixtureSyncInfo.time}</span>
+                : fixtureSyncInfo.status === 'error'
+                ? <span className="inline-flex items-center gap-1"><AlertCircle className="w-3.5 h-3.5" /> {fixtureSyncInfo.time}</span>
+                : 'Never'}
             </span>
           </div>
           {fixtureSyncInfo.errorMsg && (
-            <div className="ml-auto text-xs text-red-500 bg-red-50 dark:bg-red-500/10 rounded-lg px-3 py-1.5">{fixtureSyncInfo.errorMsg}</div>
+            <div className="ml-auto text-xs text-red-500 bg-red-50 dark:bg-red-500/10 rounded-lg px-3 py-1.5">
+              {fixtureSyncInfo.errorMsg}
+            </div>
           )}
           <div className="flex justify-between items-center">
             <span className="text-slate-600 dark:text-slate-400">Fixtures Updated (last run)</span>
@@ -504,34 +691,47 @@ export default function Admin() {
               <option value="backup_only">Backup Only</option>
             </select>
           </div>
+
           {lastFixtureMeta && (
             <>
               <div className="border-t border-slate-200 dark:border-slate-700 pt-3" />
               <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mb-2">Last Sync Metadata</p>
+
               {lastFixtureMeta.http_status && (
                 <div className="flex justify-between items-center">
                   <span className="text-slate-600 dark:text-slate-400">HTTP Status</span>
-                  <span className={`font-semibold ${lastFixtureMeta.http_status === 200 ? 'text-emerald-600' : 'text-red-500'}`}>{lastFixtureMeta.http_status}</span>
+                  <span className={`font-semibold ${lastFixtureMeta.http_status === 200 ? 'text-emerald-600' : 'text-red-500'}`}>
+                    {lastFixtureMeta.http_status}
+                  </span>
                 </div>
               )}
+
               {lastFixtureMeta.rate_limit_remaining !== undefined && (
                 <div className="flex justify-between items-center">
                   <span className="text-slate-600 dark:text-slate-400">API Remaining Today</span>
-                  <span className={`font-semibold ${lastFixtureMeta.rate_limit_remaining > 20 ? 'text-emerald-600' : lastFixtureMeta.rate_limit_remaining > 5 ? 'text-amber-500' : 'text-red-500'}`}>{lastFixtureMeta.rate_limit_remaining} / {lastFixtureMeta.rate_limit_limit || '?'}</span>
+                  <span className={`font-semibold ${
+                    lastFixtureMeta.rate_limit_remaining > 20 ? 'text-emerald-600' :
+                    lastFixtureMeta.rate_limit_remaining > 5 ? 'text-amber-500' : 'text-red-500'
+                  }`}>
+                    {lastFixtureMeta.rate_limit_remaining} / {lastFixtureMeta.rate_limit_limit || '?'}
+                  </span>
                 </div>
               )}
+
               {lastFixtureMeta.results_count !== undefined && (
                 <div className="flex justify-between items-center">
                   <span className="text-slate-600 dark:text-slate-400">Fixtures in API Response</span>
                   <span className="font-semibold text-slate-800 dark:text-slate-200">{lastFixtureMeta.results_count}</span>
                 </div>
               )}
+
               {lastFixtureMeta.api_message && (
                 <div className="flex justify-between items-center">
                   <span className="text-slate-600 dark:text-slate-400">API Message</span>
                   <span className="text-xs text-amber-600 dark:text-amber-400">{lastFixtureMeta.api_message}</span>
                 </div>
               )}
+
               {lastFixtureMeta.request_url && (
                 <div className="flex justify-between items-center">
                   <span className="text-slate-600 dark:text-slate-400">Request URL</span>
@@ -543,9 +743,7 @@ export default function Admin() {
         </div>
       </RoundedCard>
 
-      {/* Manual Override & Backup */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Manual Score Override */}
         <RoundedCard hover={false}>
           <SectionHeader title="Manual Score Override" subtitle="Enter final scores when API is unavailable" icon={<Edit3 className="w-5 h-5" />} />
           <div className="mt-4 space-y-3">
@@ -573,6 +771,7 @@ export default function Admin() {
                 />
               </div>
             </div>
+
             <div className="grid grid-cols-3 gap-3">
               <div>
                 <label className="text-[10px] text-slate-400 uppercase tracking-wider">Home Score</label>
@@ -606,6 +805,7 @@ export default function Admin() {
                 />
               </div>
             </div>
+
             <button
               className="btn-primary w-full"
               onClick={handleOverrideScore}
@@ -614,6 +814,7 @@ export default function Admin() {
               {overrideSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Shield className="w-4 h-4" />}
               {overrideSubmitting ? 'Saving...' : 'Apply Manual Override'}
             </button>
+
             <p className="text-[10px] text-slate-400">
               Manual overrides are marked with data_source=manual and is_manual_override=true.
               Primary provider results can later overwrite manual data if they provide a completed result.
@@ -621,7 +822,6 @@ export default function Admin() {
           </div>
         </RoundedCard>
 
-        {/* Backup & Recompute Controls */}
         <RoundedCard hover={false}>
           <SectionHeader title="Backup & Recompute" subtitle="Fallback sync and data recomputation" icon={<ArrowRight className="w-5 h-5" />} />
           <div className="mt-4 space-y-3">
@@ -668,7 +868,6 @@ export default function Admin() {
         </RoundedCard>
       </div>
 
-      {/* Database Stats */}
       <RoundedCard hover={false}>
         <SectionHeader title="Database Statistics" subtitle="Record counts across all tables" icon={<Database className="w-5 h-5" />} />
         <div className="flex justify-end mb-2">
@@ -676,6 +875,7 @@ export default function Admin() {
             {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />} Refresh
           </button>
         </div>
+
         {stats ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
             {[
@@ -703,7 +903,6 @@ export default function Admin() {
         )}
       </RoundedCard>
 
-      {/* Diagnostics */}
       <RoundedCard hover={false}>
         <SectionHeader title="Diagnostics" subtitle="Current data and simulation status" icon={<Activity className="w-5 h-5" />} />
         <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -726,6 +925,7 @@ export default function Admin() {
             <p className="text-[10px] text-slate-400">Provider</p>
           </div>
         </div>
+
         <div className="mt-4 space-y-2 text-sm">
           <div className="flex justify-between items-center">
             <span className="text-slate-600 dark:text-slate-400">Model Version</span>
@@ -742,7 +942,6 @@ export default function Admin() {
         </div>
       </RoundedCard>
 
-      {/* System Logs */}
       <RoundedCard hover={false}>
         <SectionHeader title="System Logs" subtitle="Recent activity" />
         <div className="rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 p-4 font-mono text-xs text-slate-500 dark:text-slate-400 max-h-64 overflow-y-auto">
@@ -750,13 +949,19 @@ export default function Admin() {
             <p>No activity yet. Use the buttons above to trigger actions.</p>
           ) : (
             logs.map((l, i) => (
-              <div key={i} className={`flex gap-3 py-0.5 ${l.status === 'error' ? 'text-red-500 dark:text-red-400' : l.status === 'success' ? 'text-emerald-600 dark:text-emerald-400' : ''}`}>
-                <span className="text-slate-400 shrink-0">{l.timestamp}</span>
-                <span className="shrink-0">[{l.action}]</span>
-                <span>{l.message}</span>
-                {l.inserted !== undefined && <span className="text-slate-400 ml-2">+{l.inserted} inserted</span>}
-                {l.updated !== undefined && <span className="text-slate-400 ml-2">~{l.updated} updated</span>}
-                {l.errors !== undefined && l.errors > 0 && <span className="text-red-400 ml-2">{l.errors} errors</span>}
+              <div
+                key={i}
+                className={`flex gap-3 py-1 ${
+                  l.status === 'error'
+                    ? 'text-red-500 dark:text-red-400'
+                    : l.status === 'success'
+                    ? 'text-emerald-600 dark:text-emerald-400'
+                    : 'text-slate-500 dark:text-slate-400'
+                }`}
+              >
+                <span className="opacity-70 shrink-0">[{l.timestamp}]</span>
+                <span className="shrink-0 font-semibold">{l.action}</span>
+                <span className="break-words">{l.message}</span>
               </div>
             ))
           )}
