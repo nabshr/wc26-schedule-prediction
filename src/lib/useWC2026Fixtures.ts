@@ -127,14 +127,17 @@ export function useWC2026Fixtures() {
       };
     }
 
-    // Build lookup from synced fixtures by match_number or team pairing
+    // Build lookup from synced fixtures by match_number, team+date, or team pairing alone
     const syncedByMatchNumber = new Map<number, SyncedFixture>();
     const syncedByTeams = new Map<string, SyncedFixture>();
+    const syncedByTeamPair = new Map<string, SyncedFixture>();
 
     for (const sf of syncedFixtures) {
       if (sf.match_number) syncedByMatchNumber.set(sf.match_number, sf);
-      const key = `${sf.home_team_code}-${sf.away_team_code}-${sf.kickoff_utc?.slice(0, 10)}`;
-      syncedByTeams.set(key, sf);
+      const dateKey = `${sf.home_team_code}-${sf.away_team_code}-${sf.kickoff_utc?.slice(0, 10)}`;
+      syncedByTeams.set(dateKey, sf);
+      const pairKey = `${sf.home_team_code}-${sf.away_team_code}`;
+      syncedByTeamPair.set(pairKey, sf);
     }
 
     const consumed = new Set<string>();
@@ -146,14 +149,26 @@ export function useWC2026Fixtures() {
         const key = `${staticF.home}-${staticF.away}-${staticF.date}`;
         synced = syncedByTeams.get(key);
       }
+      if (!synced) {
+        // Fallback: match by team pair alone (handles UTC date-boundary
+        // differences between static schedule and provider kickoff times)
+        const pairKey = `${staticF.home}-${staticF.away}`;
+        synced = syncedByTeamPair.get(pairKey);
+      }
 
       if (synced) {
         consumed.add(synced.id);
-        // Preserve static id/metadata, overlay live data from sync
+        // Preserve static metadata (venue, city, group, matchday) since
+        // football-data.org doesn't provide these; overlay live score/status.
+        const syncedMerged = syncedToMerged(synced);
         return {
           ...staticF,
-          ...syncedToMerged(synced),
+          ...syncedMerged,
           id: staticF.id,
+          venue: syncedMerged.venue || staticF.venue,
+          city: syncedMerged.city || staticF.city,
+          group: syncedMerged.group || staticF.group,
+          matchday: syncedMerged.matchday || staticF.matchday,
         };
       }
 
