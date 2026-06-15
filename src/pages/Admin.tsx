@@ -524,7 +524,7 @@ export default function Admin() {
             </div>
             <div>
               <h3 className="font-semibold text-slate-900 dark:text-white">Sync Live</h3>
-              <p className="text-xs text-slate-500">Live updates every 30 sec (or within 60 min of kickoff)</p>
+              <p className="text-xs text-slate-500">Updates every 30 sec (or within 60 min of kickoff)</p>
             </div>
           </div>
           <button className="btn-secondary w-full" onClick={handleLiveSync} disabled={syncing}>
