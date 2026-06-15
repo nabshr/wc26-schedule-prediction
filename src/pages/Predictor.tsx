@@ -227,22 +227,24 @@ export default function Predictor() {
 
       {/* Team Selectors */}
       <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] gap-4 items-start relative z-20">
-        <GlassPanel>
-          <SectionHeader title="Team A" />
-          <div className="mt-3">
-            <TeamSelector
-              label="Team A"
-              selected={teamACode}
-              onSelect={setTeamACode}
-              exclude={teamBCode}
-              isOpen={openDropdown === 'a'}
-              onToggle={() => setOpenDropdown(openDropdown === 'a' ? null : 'a')}
-              onClose={() => setOpenDropdown(null)}
-            />
-          </div>
-        </GlassPanel>
-
-        <div className="flex flex-col items-center gap-2 self-center">
+        <div className={`relative overflow-visible ${openDropdown === 'a' ? 'z-50' : 'z-10'}`}>
+          <GlassPanel className="overflow-visible">
+            <SectionHeader title="Team A" />
+            <div className="mt-3">
+              <TeamSelector
+                label="Team A"
+                selected={teamACode}
+                onSelect={setTeamACode}
+                exclude={teamBCode}
+                isOpen={openDropdown === 'a'}
+                onToggle={() => setOpenDropdown(openDropdown === 'a' ? null : 'a')}
+                onClose={() => setOpenDropdown(null)}
+              />
+            </div>
+          </GlassPanel>
+        </div>
+      
+        <div className="flex flex-col items-center gap-2 self-center relative z-20">
           <button
             onClick={swapTeams}
             className="w-10 h-10 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 flex items-center justify-center hover:border-brand-500/50 hover:bg-brand-50 dark:hover:bg-brand-500/10 transition-all"
@@ -252,21 +254,23 @@ export default function Predictor() {
           </button>
           <span className="text-[10px] text-slate-400">Swap</span>
         </div>
-
-        <GlassPanel>
-          <SectionHeader title="Team B" />
-          <div className="mt-3">
-            <TeamSelector
-              label="Team B"
-              selected={teamBCode}
-              onSelect={setTeamBCode}
-              exclude={teamACode}
-              isOpen={openDropdown === 'b'}
-              onToggle={() => setOpenDropdown(openDropdown === 'b' ? null : 'b')}
-              onClose={() => setOpenDropdown(null)}
-            />
-          </div>
-        </GlassPanel>
+      
+        <div className={`relative overflow-visible ${openDropdown === 'b' ? 'z-50' : 'z-10'}`}>
+          <GlassPanel className="overflow-visible">
+            <SectionHeader title="Team B" />
+            <div className="mt-3">
+              <TeamSelector
+                label="Team B"
+                selected={teamBCode}
+                onSelect={setTeamBCode}
+                exclude={teamACode}
+                isOpen={openDropdown === 'b'}
+                onToggle={() => setOpenDropdown(openDropdown === 'b' ? null : 'b')}
+                onClose={() => setOpenDropdown(null)}
+              />
+            </div>
+          </GlassPanel>
+        </div>
       </div>
 
       {/* Venue Context */}
