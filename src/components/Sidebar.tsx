@@ -5,6 +5,9 @@ import {
   BookOpen, Settings, ChevronLeft, ChevronRight, Trophy
 } from 'lucide-react';
 import { useState } from 'react';
+import { useTheme } from '../context/ThemeContext';
+import logoLight from '../assets/wc26_light.jpg';
+import logoDark from '../assets/wc26_dark.png';
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -27,11 +30,18 @@ export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const location = useLocation();
 
+  const { theme } = useTheme();
+  const championLogo = theme === 'dark' ? logoDark : logoLight;
+
   return (
     <aside className={`hidden lg:flex flex-col h-screen sticky top-0 border-r border-slate-200/60 dark:border-slate-700/40 bg-white/80 dark:bg-surface-dark-100/80 backdrop-blur-xl transition-all duration-300 ${collapsed ? 'w-[72px]' : 'w-[240px]'}`}>
       <div className="flex items-center gap-3 px-4 h-16 border-b border-slate-200/60 dark:border-slate-700/40">
         <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center shadow-glow flex-shrink-0">
-          <Trophy className="w-5 h-5 text-white" />
+          <img
+                  src={championLogo}
+                  alt="FIFA World Cup 2026 logo"
+                  className="w-full h-full object-contain"
+                />
         </div>
         {!collapsed && (
           <div className="overflow-hidden">
