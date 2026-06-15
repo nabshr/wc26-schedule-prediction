@@ -95,7 +95,12 @@ export function useWC2026Fixtures() {
     try {
       const [fixturesRes, runsRes, configRes] = await Promise.all([
         supabase.from('wc2026_fixtures').select('*').order('kickoff_utc', { ascending: true }),
-        supabase.from('sync_runs').select('*').order('started_at', { ascending: false }).limit(10),
+        supabase
+          .from('sync_runs')
+          .select('*')
+          .gte('started_at', new Date(new Date().setUTCHours(0, 0, 0, 0)).toISOString())
+          .in('status', ['success', 'running'])
+          .order('started_at', { ascending: false }),
         supabase.from('provider_config').select('*').eq('is_active', true).limit(1),
       ]);
 
