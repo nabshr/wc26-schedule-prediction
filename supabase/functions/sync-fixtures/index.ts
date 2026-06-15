@@ -369,9 +369,20 @@ async function tryBackupProvider(
   try {
     // football-data.org World Cup 2026 competition
     const url = "https://api.football-data.org/v4/competitions/WC/matches?season=2026";
-    const resp = await fetch(url, {
-      headers: { "X-Auth-Token": backupKey },
-    });
+
+    let resp: Response;
+    try {
+      resp = await fetch(url, {
+        headers: { "X-Auth-Token": backupKey },
+      });
+    } catch (fetchErr: any) {
+      // Transient network/HTTP2 connection errors: wait briefly and retry once
+      backupMeta.first_attempt_error = fetchErr?.message || String(fetchErr);
+      await new Promise(r => setTimeout(r, 1000));
+      resp = await fetch(url, {
+        headers: { "X-Auth-Token": backupKey },
+      });
+    }
 
     backupMeta.http_status = resp.status;
     backupMeta.request_url = url;
