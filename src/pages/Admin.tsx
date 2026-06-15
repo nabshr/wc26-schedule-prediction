@@ -112,7 +112,7 @@ export default function Admin() {
     await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: `${window.location.origin}${window.location.pathname}`,
+        redirectTo: window.location.origin,
       },
     });
   }
@@ -157,6 +157,13 @@ export default function Admin() {
   useEffect(() => {
     if (isAuthorized) loadStats();
   }, [loadStats, isAuthorized]);
+
+  useEffect(() => {
+  if (window.location.hash.includes('access_token')) {
+    window.history.replaceState({}, document.title, window.location.pathname);
+  }
+}, []);
+
 
   async function getAuthHeaders() {
     const { data } = await supabase.auth.getSession();
