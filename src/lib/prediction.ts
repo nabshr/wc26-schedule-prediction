@@ -4,6 +4,26 @@ import { SimulationResult, GroupProbabilities, KnockoutSimResult } from './types
 
 // ... (keep existing code until simulateGroupStage)
 
+export function predictMatch(homeTeamCode: string, awayTeamCode: string, homeElo: number, awayElo: number): { homeWin: number; draw: number; awayWin: number } {
+  // Calculate expected score using Elo formula
+  const expectedHomeScore = 1 / (1 + Math.pow(10, (awayElo - homeElo) / 400));
+  const expectedAwayScore = 1 / (1 + Math.pow(10, (homeElo - awayElo) / 400));
+
+  // Convert expected scores to win probabilities
+  // Using a simplified model where draw probability is based on the difference in strength
+  const drawProbability = 1 - Math.abs(expectedHomeScore - expectedAwayScore) * 0.5;
+  const homeWinProbability = expectedHomeScore * (1 - drawProbability / 2);
+  const awayWinProbability = expectedAwayScore * (1 - drawProbability / 2);
+
+  // Normalize probabilities to sum to 1
+  const total = homeWinProbability + drawProbability + awayWinProbability;
+  return {
+    homeWin: homeWinProbability / total,
+    draw: drawProbability / total,
+    awayWin: awayWinProbability / total
+  };
+}
+
 export function populateBracketsFromGroups(sim: SimulationResult): [string, string][] {
   // Extract group results and sort by advancement probability
   return GROUP_NAMES.map(group => {
