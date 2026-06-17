@@ -3,30 +3,30 @@ import { useMemo } from 'react';
 import SectionHeader from '../components/SectionHeader';
 import RoundedCard from '../components/RoundedCard';
 import TeamBadge from '../components/TeamBadge';
-import { GROUP_NAMES, getTeamByCode } from '../data/worldCup2026';
-import { simulateGroupStage, buildResolvedBracket, R32_MATCHUPS } from '../lib/prediction';
+import { getTeamByCode } from '../data/worldCup2026';
+import { simulateGroupStage } from '../lib/prediction';
+import { buildOfficialBracket, type BracketMatch, type BracketTeamSlot } from '../lib/bracketSeeding';
 import { useWC2026Fixtures } from '../lib/useWC2026Fixtures';
 import { useTheme } from '../context/ThemeContext';
 import logoLight from '../assets/wc26_light.png';
 import logoDark from '../assets/wc26_dark.png';
 import { DEFAULT_SIMULATION_RUNS, SIMULATION_SEED } from '../lib/simulationConfig';
 
-// ── Derive actual group positions from real fixture results ─────────────
+// ── Derive real group positions from fixture results ────────────────────
 function deriveActualGroupPositions(
   fixtures: ReturnType<typeof useWC2026Fixtures>['fixtures']
 ): Record<string, string[]> | undefined {
-  const standings: Record<string, Record<string, { pts: number; gd: number; gf: number }>> = {};
+  const tbl: Record<string, Record<string, { pts: number; gd: number; gf: number; played: number }>> = {};
 
   for (const f of fixtures) {
-    if (f.stage !== 'group') continue;
-    if (f.status !== 'completed' || f.homeScore == null || f.awayScore == null) continue;
+    if (f.stage !== 'group' || f.status !== 'completed') continue;
+    if (f.homeScore == null || f.awayScore == null || !f.group) continue;
     const g = f.group;
-    if (!g) continue;
-    if (!standings[g]) standings[g] = {};
-    if (!standings[g][f.home]) standings[g][f.home] = { pts: 0, gd: 0, gf: 0 };
-    if (!standings[g][f.away]) standings[g][f.away] = { pts: 0, gd: 0, gf: 0 };
-    const h = standings[g][f.home];
-    const a = standings[g][f.away];
+    if (!tbl[g]) tbl[g] = {};
+    if (!tbl[g][f.home]) tbl[g][f.home] = { pts: 0, gd: 0, gf: 0, played: 0 };
+    if (!tbl[g][f.away]) tbl[g][f.away] = { pts: 0, gd: 0, gf: 0, played: 0 };
+    const h = tbl[g][f.home]; const a = tbl[g][f.away];
+    h.played++; a.played++;
     h.gf += f.homeScore; h.gd += f.homeScore - f.awayScore;
     a.gf += f.awayScore; a.gd += f.awayScore - f.homeScore;
     if (f.homeScore > f.awayScore) { h.pts += 3; }
@@ -34,108 +34,140 @@ function deriveActualGroupPositions(
     else { a.pts += 3; }
   }
 
-  // Only return positions for fully-completed groups (all 6 matches played)
   const result: Record<string, string[]> = {};
-  for (const g of GROUP_NAMES) {
-    const teams = Object.entries(standings[g] || {});
-    if (teams.length < 4) continue; // group not done
-    const sorted = teams
-      .sort((a, b) => b[1].pts - a[1].pts || b[1].gd - a[1].gd || b[1].gf - a[1].gf)
+  for (const [g, teams] of Object.entries(tbl)) {
+    if (Object.keys(teams).length < 4) continue; // group not complete
+    const allPlayedEnough = Object.values(teams).every(t => t.played >= 3);
+    if (!allPlayedEnough) continue;
+    result[g] = Object.entries(teams)
+      .sort(([, a], [, b]) => b.pts - a.pts || b.gd - a.gd || b.gf - a.gf)
       .map(([code]) => code);
-    result[g] = sorted;
   }
   return Object.keys(result).length > 0 ? result : undefined;
 }
 
-// ── Derive actual knockout results from real fixture data ───────────────
+// ── Derive actual knockout results from fixtures ──────────────────────
 function deriveActualKnockoutResults(
   fixtures: ReturnType<typeof useWC2026Fixtures>['fixtures']
 ): Record<string, string> {
   const results: Record<string, string> = {};
+  const ko = fixtures.filter(f =>
+    f.status === 'completed' && f.stage !== 'group' && f.winnerCode
+  ).sort((a, b) => (a.date + a.timeUTC).localeCompare(b.date + b.timeUTC));
 
-  const byStage: Record<string, typeof fixtures> = {};
-  for (const f of fixtures) {
-    if (f.stage === 'group') continue;
-    (byStage[f.stage] ||= []).push(f);
+  const byStage: Record<string, typeof ko> = {};
+  for (const f of ko) {
+    if (!byStage[f.stage]) byStage[f.stage] = [];
+    byStage[f.stage].push(f);
   }
 
-  for (const stage of Object.keys(byStage)) {
-    byStage[stage].sort((a, b) => (a.date + a.timeUTC).localeCompare(b.date + b.timeUTC));
-  }
-
-  const roundKeyByStage: Record<string, string> = {
-    r32: 'R32',
-    r16: 'R16',
-    qf: 'QF',
-    sf: 'SF',
-    final: 'Final',
+  const STAGE_KEY: Record<string, string> = { r32: 'R32', r16: 'R16', qf: 'QF', sf: 'SF', final: 'Final' };
+  // Match numbers for each stage (in official order)
+  const STAGE_MATCH_NUMS: Record<string, number[]> = {
+    r32: [73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88],
+    r16: [89,90,91,92,93,94,95,96],
+    qf:  [97,98,99,100],
+    sf:  [101,102],
+    final: [104],
   };
 
-  for (const f of fixtures) {
-    if (f.status !== 'completed' || !f.winnerCode) continue;
-
-    const roundKey = roundKeyByStage[f.stage];
+  for (const [stage, matches] of Object.entries(byStage)) {
+    const roundKey = STAGE_KEY[stage];
     if (!roundKey) continue;
-
-    const winnerCode =
-      f.winnerCode === 'home' ? f.home :
-      f.winnerCode === 'away' ? f.away :
-      f.winnerCode;
-
-    if (!winnerCode || winnerCode === 'draw') continue;
-
-    const matchIdx = byStage[f.stage].indexOf(f);
-    if (matchIdx >= 0) results[`${roundKey}-${matchIdx}`] = winnerCode;
+    const matchNums = STAGE_MATCH_NUMS[stage] || [];
+    matches.forEach((f, i) => {
+      const winnerCode = f.winnerCode === 'home' ? f.home
+        : f.winnerCode === 'away' ? f.away
+        : null;
+      if (!winnerCode || winnerCode === 'draw') return;
+      const mNum = matchNums[i];
+      if (mNum) results[`${roundKey}-${mNum}`] = winnerCode;
+    });
   }
-
   return results;
 }
 
-// ── Match card ─────────────────────────────────────────────────────────
-interface MatchSlot {
-  home: string; away: string;
-  winner: string | null;
-  isActual: boolean;
-}
+// ── Match card component ────────────────────────────────────────────────
+function MatchCard({
+  match, size = 'sm', showMatchNum = false,
+}: {
+  match: BracketMatch;
+  size?: 'xs' | 'sm' | 'md';
+  showMatchNum?: boolean;
+}) {
+  const py = size === 'xs' ? 'py-1' : size === 'sm' ? 'py-1.5' : 'py-2';
+  const isTbd = match.home.code === 'TBD' && match.away.code === 'TBD';
 
-function BracketMatchCard({ match, size = 'md' }: { match: MatchSlot; size?: 'sm' | 'md' }) {
-  const homeTeam = getTeamByCode(match.home);
-  const awayTeam = getTeamByCode(match.away);
-  const isTbd = match.home === 'TBD' || match.away === 'TBD';
-  const py = size === 'sm' ? 'py-1.5' : 'py-2';
+  function TeamRow({ slot }: { slot: BracketTeamSlot }) {
+    const team = slot.code !== 'TBD' ? getTeamByCode(slot.code) : null;
+    const isWinner = match.winner?.code === slot.code && slot.code !== 'TBD';
 
-  function Row({ code, team, isWinner }: { code: string; team: ReturnType<typeof getTeamByCode>; isWinner: boolean }) {
     return (
-      <div className={`flex items-center justify-between px-3 ${py} ${isWinner ? 'bg-brand-50/60 dark:bg-brand-500/10' : ''}`}>
+      <div className={`flex items-center gap-1.5 px-2.5 ${py} ${isWinner ? 'bg-brand-50/70 dark:bg-brand-500/10' : ''}`}>
         {team ? (
-          <div className="flex items-center gap-1.5">
+          <>
             <TeamBadge name={team.name} code={team.code} size="sm" />
-            {isWinner && (
-              <CheckCircle2 className="w-3 h-3 text-brand-500 ml-1 flex-shrink-0" />
-            )}
-          </div>
+            {isWinner && <CheckCircle2 className="w-3 h-3 text-brand-500 flex-shrink-0 ml-auto" />}
+          </>
         ) : (
-          <span className="text-xs text-slate-400 italic">{code === 'TBD' ? 'TBD' : code}</span>
+          <span className="text-[10px] text-slate-400 italic truncate">{slot.label}</span>
         )}
       </div>
     );
   }
 
   return (
-    <div className={`rounded-lg border ${isTbd ? 'border-dashed border-slate-200 dark:border-slate-700 opacity-50' : 'border-slate-200 dark:border-slate-700'} bg-white dark:bg-surface-dark-100 overflow-hidden`}>
-      <Row code={match.home} team={homeTeam} isWinner={match.winner === match.home} />
-      <div className="border-t border-slate-100 dark:border-slate-800" />
-      <Row code={match.away} team={awayTeam} isWinner={match.winner === match.away} />
+    <div className={`rounded-md border overflow-hidden transition-opacity ${
+      isTbd
+        ? 'border-dashed border-slate-200/60 dark:border-slate-700/40 opacity-40'
+        : match.isActual
+          ? 'border-brand-300/60 dark:border-brand-600/40'
+          : 'border-slate-200 dark:border-slate-700'
+    } bg-white dark:bg-surface-dark-100`}>
+      {showMatchNum && (
+        <div className="px-2.5 py-0.5 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
+          <span className="text-[9px] text-slate-400">M{match.matchNum}</span>
+          {match.isActual && <span className="ml-1 text-[9px] text-brand-500">✓ Actual</span>}
+          {!match.isActual && !isTbd && <span className="ml-1 text-[9px] text-amber-400">~ Predicted</span>}
+        </div>
+      )}
+      <TeamRow slot={match.home} />
+      <div className="border-t border-slate-100 dark:border-slate-800/60" />
+      <TeamRow slot={match.away} />
     </div>
   );
 }
 
-// ── Column header with badge ────────────────────────────────────────────
-function RoundHeader({ title, count }: { title: string; count: number }) {
+// ── Round column ────────────────────────────────────────────────────────
+function RoundColumn({
+  title, matches, size = 'sm', showMatchNum = false,
+  topOffset = 0,
+}: {
+  title: string; matches: BracketMatch[]; size?: 'xs' | 'sm' | 'md';
+  showMatchNum?: boolean; topOffset?: number;
+}) {
+  const halfLen = Math.ceil(matches.length / 2);
+  const topHalf = matches.slice(0, halfLen);
+  const bottomHalf = matches.slice(halfLen);
+
   return (
-    <div className="text-center mb-3">
-      <h4 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{title}</h4>
-      <span className="text-[10px] text-slate-400">{count} matches</span>
+    <div className="flex-1 min-w-[152px]">
+      <h4 className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2 text-center">
+        {title}
+      </h4>
+      <div className="flex flex-col gap-1.5">
+        {topHalf.map((m, i) => (
+          <div key={m.matchNum} style={{ marginTop: i === 0 ? topOffset : 0 }}>
+            <MatchCard match={m} size={size} showMatchNum={showMatchNum} />
+          </div>
+        ))}
+        <div className="border-t border-dashed border-slate-200 dark:border-slate-700 my-1" />
+        {bottomHalf.map((m, i) => (
+          <div key={m.matchNum} style={{ marginTop: i === 0 ? topOffset : 0 }}>
+            <MatchCard match={m} size={size} showMatchNum={showMatchNum} />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -146,16 +178,17 @@ export default function Bracket() {
   const { theme } = useTheme();
   const championLogo = theme === 'dark' ? logoDark : logoLight;
 
-  // Derive real results to override predictions
   const actualGroupPositions = useMemo(() => deriveActualGroupPositions(fixtures), [fixtures]);
   const actualKnockoutResults = useMemo(() => deriveActualKnockoutResults(fixtures), [fixtures]);
 
   const bracket = useMemo(
-    () => buildResolvedBracket(sim, actualKnockoutResults, actualGroupPositions),
-    [sim, actualKnockoutResults, actualGroupPositions]
+    () => buildOfficialBracket(sim, actualGroupPositions, actualKnockoutResults),
+    [sim, actualGroupPositions, actualKnockoutResults]
   );
 
-  // Champion probability table
+  const hasActualResults = Object.keys(actualKnockoutResults).length > 0;
+
+  // Champion probability table from full simulation
   const championCandidates = useMemo(() => {
     return Object.entries(sim.knockout.championProb)
       .map(([code, prob]) => ({ team: getTeamByCode(code), prob }))
@@ -164,16 +197,17 @@ export default function Bracket() {
       .slice(0, 8);
   }, [sim]);
 
-  const hasActualResults = Object.keys(actualKnockoutResults).length > 0;
-
   return (
     <div className="space-y-6 animate-fade-in">
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Bracket</h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Projected knockout stage — real results auto-override predictions</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+            Official FIFA 2026 bracket seeding — predictions auto-update with real results
+          </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-700 rounded-lg px-3 py-1.5">
             <Cpu className="w-3.5 h-3.5 text-brand-500" />
             <span className="text-[11px] font-medium text-slate-600 dark:text-slate-300">50K Monte Carlo</span>
@@ -181,120 +215,102 @@ export default function Bracket() {
           {hasActualResults && (
             <div className="flex items-center gap-1.5 bg-green-50 dark:bg-green-500/10 rounded-lg px-3 py-1.5">
               <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />
-              <span className="text-[11px] font-medium text-green-600 dark:text-green-400">Real results applied</span>
+              <span className="text-[11px] font-medium text-green-600 dark:text-green-400">Live results applied</span>
             </div>
           )}
         </div>
       </div>
 
       {/* Legend */}
-      <div className="flex items-center gap-4 text-[11px] text-slate-500">
+      <div className="flex items-center gap-4 text-[11px] text-slate-400">
         <div className="flex items-center gap-1.5">
           <CheckCircle2 className="w-3.5 h-3.5 text-brand-500" />
           <span>Actual result</span>
         </div>
         <div className="flex items-center gap-1.5">
           <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-          <span>Predicted by model</span>
+          <span>Model prediction</span>
         </div>
       </div>
 
+      {/* Main bracket */}
       <RoundedCard className="!p-0 overflow-hidden">
         <div className="px-5 py-3 border-b border-slate-100 dark:border-slate-700/50 bg-gradient-to-r from-gold-500/5 to-transparent dark:from-gold-500/10">
-          <SectionHeader title="Knockout Bracket" subtitle={`Projected from ${sim.simulationRuns.toLocaleString()} simulation runs`} icon={<GitBranch className="w-5 h-5" />} />
+          <SectionHeader
+            title="Knockout Bracket"
+            subtitle={`Official seeding · ${sim.simulationRuns.toLocaleString()} simulation runs`}
+            icon={<GitBranch className="w-5 h-5" />}
+          />
         </div>
 
-        <div className="p-4 sm:p-6 overflow-x-auto">
-          <div className="min-w-[1100px] flex items-start gap-3">
+        <div className="p-4 sm:p-5 overflow-x-auto">
+          <div className="min-w-[920px] flex items-start gap-2">
 
-            {/* R32 */}
-            <div className="flex-1 min-w-[160px]">
-              <RoundHeader title="Round of 32" count={16} />
-              <div className="space-y-1.5">
-                {bracket.r32.slice(0, 8).map((m, i) => (
-                  <BracketMatchCard key={`r32-t${i}`} match={m} size="sm" />
-                ))}
-                <div className="my-2 border-t border-dashed border-slate-200 dark:border-slate-700" />
-                {bracket.r32.slice(8).map((m, i) => (
-                  <BracketMatchCard key={`r32-b${i}`} match={m} size="sm" />
-                ))}
-              </div>
-            </div>
+            {/* R32 — 16 matches */}
+            <RoundColumn
+              title="Round of 32"
+              matches={bracket.r32}
+              size="xs"
+              showMatchNum={true}
+              topOffset={0}
+            />
 
-            {/* R16 */}
-            <div className="flex-1 min-w-[160px]">
-              <RoundHeader title="Round of 16" count={8} />
-              <div className="space-y-3">
-                {bracket.r16.slice(0, 4).map((m, i) => (
-                  <div key={`r16-t${i}`} className="flex flex-col justify-center" style={{ minHeight: '64px', marginTop: i === 0 ? '18px' : '18px' }}>
-                    <BracketMatchCard match={m} size="sm" />
-                    {!m.isActual && <div className="flex items-center gap-1 mt-0.5 px-1"><Sparkles className="w-2.5 h-2.5 text-amber-400" /><span className="text-[9px] text-amber-500">Predicted</span></div>}
-                    {m.isActual && <div className="flex items-center gap-1 mt-0.5 px-1"><CheckCircle2 className="w-2.5 h-2.5 text-brand-500" /><span className="text-[9px] text-brand-500">Actual</span></div>}
-                  </div>
-                ))}
-                <div className="my-2 border-t border-dashed border-slate-200 dark:border-slate-700" />
-                {bracket.r16.slice(4).map((m, i) => (
-                  <div key={`r16-b${i}`} className="flex flex-col justify-center" style={{ minHeight: '64px', marginTop: '18px' }}>
-                    <BracketMatchCard match={m} size="sm" />
-                    {!m.isActual && <div className="flex items-center gap-1 mt-0.5 px-1"><Sparkles className="w-2.5 h-2.5 text-amber-400" /><span className="text-[9px] text-amber-500">Predicted</span></div>}
-                    {m.isActual && <div className="flex items-center gap-1 mt-0.5 px-1"><CheckCircle2 className="w-2.5 h-2.5 text-brand-500" /><span className="text-[9px] text-brand-500">Actual</span></div>}
-                  </div>
-                ))}
-              </div>
-            </div>
+            {/* R16 — 8 matches */}
+            <RoundColumn
+              title="Round of 16"
+              matches={bracket.r16}
+              size="sm"
+              showMatchNum={true}
+              topOffset={20}
+            />
 
-            {/* QF */}
-            <div className="flex-1 min-w-[160px]">
-              <RoundHeader title="Quarter-Finals" count={4} />
-              <div className="space-y-6">
-                {bracket.qf.map((m, i) => (
-                  <div key={`qf-${i}`} className="flex flex-col justify-center" style={{ marginTop: i === 0 ? '54px' : '54px' }}>
-                    <BracketMatchCard match={m} />
-                    {!m.isActual && <div className="flex items-center gap-1 mt-0.5 px-1"><Sparkles className="w-2.5 h-2.5 text-amber-400" /><span className="text-[9px] text-amber-500">Predicted</span></div>}
-                    {m.isActual && <div className="flex items-center gap-1 mt-0.5 px-1"><CheckCircle2 className="w-2.5 h-2.5 text-brand-500" /><span className="text-[9px] text-brand-500">Actual</span></div>}
-                  </div>
-                ))}
-              </div>
-            </div>
+            {/* QF — 4 matches */}
+            <RoundColumn
+              title="Quarter-Finals"
+              matches={bracket.qf}
+              size="sm"
+              showMatchNum={true}
+              topOffset={52}
+            />
 
-            {/* SF */}
-            <div className="flex-1 min-w-[160px]">
-              <RoundHeader title="Semi-Finals" count={2} />
-              <div className="space-y-12">
-                {bracket.sf.map((m, i) => (
-                  <div key={`sf-${i}`} className="flex flex-col justify-center" style={{ marginTop: i === 0 ? '140px' : '140px' }}>
-                    <BracketMatchCard match={m} />
-                    {!m.isActual && <div className="flex items-center gap-1 mt-0.5 px-1"><Sparkles className="w-2.5 h-2.5 text-amber-400" /><span className="text-[9px] text-amber-500">Predicted</span></div>}
-                    {m.isActual && <div className="flex items-center gap-1 mt-0.5 px-1"><CheckCircle2 className="w-2.5 h-2.5 text-brand-500" /><span className="text-[9px] text-brand-500">Actual</span></div>}
-                  </div>
-                ))}
+            {/* SF — 2 matches */}
+            <div className="flex-1 min-w-[152px]">
+              <h4 className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2 text-center">Semi-Finals</h4>
+              <div className="flex flex-col gap-2">
+                <div style={{ marginTop: 120 }}>
+                  <MatchCard match={bracket.sf[0]} size="md" showMatchNum={true} />
+                </div>
+                <div className="border-t border-dashed border-slate-200 dark:border-slate-700 my-1" />
+                <div style={{ marginTop: 120 }}>
+                  <MatchCard match={bracket.sf[1]} size="md" showMatchNum={true} />
+                </div>
               </div>
             </div>
 
             {/* Final + Champion */}
-            <div className="flex flex-col items-center min-w-[160px]" style={{ marginTop: '320px' }}>
-              <div className="w-full mb-2">
-                <div className="text-center mb-1">
-                  <h4 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Final</h4>
-                </div>
-                <BracketMatchCard match={bracket.final} />
-                {!bracket.final.isActual && <div className="flex items-center gap-1 mt-0.5 px-1 justify-center"><Sparkles className="w-2.5 h-2.5 text-amber-400" /><span className="text-[9px] text-amber-500">Predicted</span></div>}
-                {bracket.final.isActual && <div className="flex items-center gap-1 mt-0.5 px-1 justify-center"><CheckCircle2 className="w-2.5 h-2.5 text-brand-500" /><span className="text-[9px] text-brand-500">Actual</span></div>}
+            <div className="flex flex-col items-center min-w-[160px]" style={{ marginTop: 290 }}>
+              <h4 className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">Final</h4>
+              <div className="w-full">
+                <MatchCard match={bracket.final} size="md" showMatchNum={true} />
               </div>
 
               {/* Champion */}
-              <div className="mt-4 flex flex-col items-center">
+              <div className="mt-5 flex flex-col items-center">
                 <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-gold-400 to-gold-600 flex items-center justify-center shadow-glow-gold">
-                  <img src={championLogo} alt="FIFA World Cup 2026 logo" className="w-full h-full object-contain" />
+                  <img src={championLogo} alt="WC 2026" className="w-full h-full object-contain" />
                 </div>
                 <p className="mt-2 text-xs font-semibold text-gold-600 dark:text-gold-400">Champion</p>
-                {bracket.final.winner && bracket.final.winner !== 'TBD' ? (
-                  <div className="mt-1">
+                {bracket.final.winner && bracket.final.winner.code !== 'TBD' ? (
+                  <div className="mt-1.5 flex flex-col items-center gap-1">
                     <TeamBadge
-                      name={getTeamByCode(bracket.final.winner)?.name || bracket.final.winner}
-                      code={bracket.final.winner}
+                      name={getTeamByCode(bracket.final.winner.code)?.name || bracket.final.winner.code}
+                      code={bracket.final.winner.code}
                       size="sm"
                     />
+                    {bracket.final.isActual
+                      ? <span className="text-[9px] text-brand-500">✓ Confirmed</span>
+                      : <span className="text-[9px] text-amber-400">~ Predicted</span>
+                    }
                   </div>
                 ) : (
                   <p className="text-[10px] text-slate-400 mt-1">TBD</p>
@@ -306,9 +322,13 @@ export default function Bracket() {
         </div>
       </RoundedCard>
 
-      {/* Champion probability table */}
+      {/* Champion probability */}
       <RoundedCard hover={false}>
-        <SectionHeader title="Champion Probability" subtitle="Top 8 projected tournament winners (from full knockout simulation)" icon={<Trophy className="w-5 h-5" />} />
+        <SectionHeader
+          title="Champion Probability"
+          subtitle="Top 8 projected winners — from full knockout bracket simulation"
+          icon={<Trophy className="w-5 h-5" />}
+        />
         <div className="mt-4 space-y-3">
           {championCandidates.map(({ team, prob }, i) => team && (
             <div key={team.code} className="flex items-center gap-3">
@@ -328,7 +348,9 @@ export default function Bracket() {
                 />
               </div>
               <span className={`text-sm font-semibold w-14 text-right ${
-                i === 0 ? 'text-gold-600 dark:text-gold-400' : i < 3 ? 'text-brand-600 dark:text-brand-400' : 'text-slate-500'
+                i === 0 ? 'text-gold-600 dark:text-gold-400'
+                : i < 3 ? 'text-brand-600 dark:text-brand-400'
+                : 'text-slate-500'
               }`}>{prob.toFixed(1)}%</span>
             </div>
           ))}
@@ -340,7 +362,7 @@ export default function Bracket() {
         <span>|</span>
         <span>Runs: {sim.simulationRuns.toLocaleString()}</span>
         <span>|</span>
-        <span>Real results override predictions automatically</span>
+        <span>Seeding: Official FIFA 2026 (M73-M104)</span>
       </div>
     </div>
   );

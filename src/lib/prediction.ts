@@ -190,68 +190,11 @@ function simulateKnockout(teamA: WC2026Team, teamB: WC2026Team, rng: () => numbe
 // Format: '1X' = 1st place Group X, '2X' = 2nd place Group X
 // '3AB' = best 3rd from Group A or B pool (placeholder for 3rd-place draw)
 export const R32_MATCHUPS: [string, string][] = [
-  ['1E', 'P0'],  // Match 74
-  ['1I', 'P1'],  // Match 77
-  ['2A', '2B'],  // Match 73
-  ['1F', '2C'],  // Match 75
-  ['2K', '2L'],  // Match 83
-  ['1H', '2J'],  // Match 84
-  ['1D', 'P2'],  // Match 81
-  ['1G', 'P3'],  // Match 82
-  ['1C', '2F'],  // Match 76
-  ['2E', '2I'],  // Match 78
-  ['1A', 'P4'],  // Match 79
-  ['1L', 'P5'],  // Match 80
-  ['1J', '2H'],  // Match 86
-  ['2D', '2G'],  // Match 88
-  ['1B', 'P6'],  // Match 85
-  ['1K', 'P7'],  // Match 87
+  ['1A', '2B'], ['1C', '2D'], ['1E', '2F'], ['1G', '2H'],
+  ['1B', '2A'], ['1D', '2C'], ['1F', '2E'], ['1H', '2G'],
+  ['1I', '2J'], ['1K', '2L'], ['1J', '2I'], ['1L', '2K'],
+  ['3AB', '3CD'], ['3EF', '3GH'], ['3IJ', '3KL'], ['3Best1', '3Best2'],
 ];
-
-export const THIRD_PLACE_POOLS: Record<string, string[]> = {
-  P0: ['A','B','C','D','F'], P1: ['C','D','F','G','H'],
-  P2: ['B','E','F','I','J'], P3: ['A','E','H','I','J'],
-  P4: ['C','E','F','H','I'], P5: ['E','H','I','J','K'],
-  P6: ['E','F','G','I','J'], P7: ['D','E','I','J','L'],
-};
-
-export function assignThirdPlaceSlots(thirdByGroup: Record<string, string>): Record<string, string> {
-  const slots = Object.keys(THIRD_PLACE_POOLS);
-  const slotForGroup: Record<string, string> = {};
-  const groupForSlot: Record<string, string> = {};
-  function tryAssign(slot: string, visited: Set<string>): boolean {
-    for (const g of THIRD_PLACE_POOLS[slot]) {
-      if (!thirdByGroup[g] || visited.has(g)) continue;
-      visited.add(g);
-      if (!slotForGroup[g] || tryAssign(slotForGroup[g], visited)) {
-        slotForGroup[g] = slot; groupForSlot[slot] = g; return true;
-      }
-    }
-    return false;
-  }
-  for (const slot of slots) tryAssign(slot, new Set());
-  const result: Record<string, string> = {};
-  for (const slot of slots) result[slot] = groupForSlot[slot] ? thirdByGroup[groupForSlot[slot]] : 'TBD';
-  return result;
-}
-
-function pickAdvancingThirds(
-  thirdTeamsByGroup: Record<string, WC2026Team>
-): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(thirdTeamsByGroup)
-      .sort(([, a], [, b]) => b.elo - a.elo)
-      .slice(0, 8)
-      .map(([group, team]) => [group, team.code])
-  );
-}
-
-function resolveThirdPlaceSlots(
-  thirdTeamsByGroup: Record<string, WC2026Team>
-): Record<string, string> {
-  const advancingThirdByGroup = pickAdvancingThirds(thirdTeamsByGroup);
-  return assignThirdPlaceSlots(advancingThirdByGroup);
-}
 
 // R16 pairs (winner of R32 match X plays winner of R32 match Y)
 const R16_PAIRS: [number, number][] = [
@@ -280,7 +223,6 @@ export interface KnockoutRunResult {
 // ── Full simulation result ──────────────────────────────────────────────
 export interface SimulationResult {
   groups: Record<string, GroupProbabilities[]>;
-  groupStrengthRank: string[];
   knockout: KnockoutSimResult;
   simulationRuns: number;
   modelVersion: string;
@@ -294,11 +236,11 @@ export interface KnockoutSimResult {
   r16Prob: Record<string, number>;
   r32Prob: Record<string, number>;
   // Most-likely bracket: per R32 slot, most probable team
-  projectedR32: Array<{ slotA: string; slotB: string; winner: string }>;   // codes
-  projectedR16: Array<{ slotA: string; slotB: string; winner: string }>;
-  projectedQF:  Array<{ slotA: string; slotB: string; winner: string }>;
-  projectedSF:  Array<{ slotA: string; slotB: string; winner: string }>;
-  projectedFinal: { slotA: string; slotB: string; winner: string };
+  projectedR32: Array<{ slotA: string; slotB: string }>;   // codes
+  projectedR16: Array<{ slotA: string; slotB: string }>;
+  projectedQF:  Array<{ slotA: string; slotB: string }>;
+  projectedSF:  Array<{ slotA: string; slotB: string }>;
+  projectedFinal: { slotA: string; slotB: string };
   projectedChampion: string;
 }
 
@@ -368,50 +310,33 @@ export function simulateGroupStage(
       groupThirds[gIdx] = standings[2].team;
     }
 
-    // ── Seed R32 using consistent third-place slot assignment ───────────
-    const thirdTeamsByGroup: Record<string, WC2026Team> = {};
-    for (let i = 0; i < GROUP_NAMES.length; i++) {
-      thirdTeamsByGroup[GROUP_NAMES[i]] = groupThirds[i];
-    }
+    // ── Seed R32 (12 group-qualified + 8 best 3rds pick slots 13-16) ────
+    // Best 8 of 12 thirds advance. Rank by Elo as proxy for expected points.
+    const thirdsWithGroup = groupThirds.map((t, i) => ({ team: t, groupIdx: i }));
+    thirdsWithGroup.sort((a, b) => b.team.elo - a.team.elo);
+    const advancing3rds = thirdsWithGroup.slice(0, 8).map(x => x.team);
 
-    const thirdSlotAssignment = resolveThirdPlaceSlots(thirdTeamsByGroup);
-
+    // Build R32 participant array (16 matches × 2 teams = 32 slots)
     function slotTeam(pos: string): WC2026Team {
-      if (pos.startsWith('1')) {
-        const group = pos.slice(1);
-        const idx = GROUP_NAMES.indexOf(group);
-        return groupWinners[idx];
-      }
-
-      if (pos.startsWith('2')) {
-        const group = pos.slice(1);
-        const idx = GROUP_NAMES.indexOf(group);
-        return groupRunnerUps[idx];
-      }
-
-      if (pos.startsWith('P')) {
-        const code = thirdSlotAssignment[pos];
-        const team = code && code !== 'TBD' ? getTeamByCode(code) : null;
-        if (team) return team;
-      }
-
-      throw new Error(`Unable to resolve bracket slot: ${pos}`);
+      const gIdx = GROUP_NAMES.indexOf(pos.slice(1));
+      if (pos.startsWith('1')) return groupWinners[gIdx];
+      if (pos.startsWith('2')) return groupRunnerUps[gIdx];
+      // 3rd place placeholder: pull next best advancing 3rd
+      const n = parseInt(pos.replace(/[^0-9]/g, '') || '0', 10);
+      return advancing3rds[n % advancing3rds.length] || groupThirds[0];
     }
 
+    const r32Participants: [WC2026Team, WC2026Team][] = R32_MATCHUPS.map(([a, b]) => [
+      slotTeam(a), slotTeam(b),
+    ]);
+
+    // ── R32 ────────────────────────────────────────────────────────────
     const r32Winners: WC2026Team[] = [];
-
     for (let i = 0; i < 16; i++) {
-      const [slotA, slotB] = R32_MATCHUPS[i];
-      const teamA = slotTeam(slotA);
-      const teamB = slotTeam(slotB);
-
-      r32Count[teamA.code] = (r32Count[teamA.code] || 0) + 1;
-      r32Count[teamB.code] = (r32Count[teamB.code] || 0) + 1;
-
-      const winner = simulateKnockout(teamA, teamB, rng);
-      r32Winners.push(winner);
-
-      r32SlotWins[i][winner.code] = (r32SlotWins[i][winner.code] || 0) + 1;
+      const w = simulateKnockout(r32Participants[i][0], r32Participants[i][1], rng);
+      r32Winners.push(w);
+      r32Count[w.code] = (r32Count[w.code] || 0) + 1;
+      r32SlotWins[i][w.code] = (r32SlotWins[i][w.code] || 0) + 1;
     }
 
     // ── R16 ────────────────────────────────────────────────────────────
@@ -481,36 +406,31 @@ export function simulateGroupStage(
   }
 
   const projectedR32 = R32_MATCHUPS.map((_, i) => ({
-    slotA: R32_MATCHUPS[i][0],
+    slotA: R32_MATCHUPS[i][0], // pos label, resolved separately in UI
     slotB: R32_MATCHUPS[i][1],
-    winner: topCode(r32SlotWins[i]),
   }));
 
   const projectedR16 = R16_PAIRS.map((_, i) => ({
     slotA: topCode(r32SlotWins[R16_PAIRS[i][0]]),
     slotB: topCode(r32SlotWins[R16_PAIRS[i][1]]),
-    winner: topCode(r16SlotWins[i]),
   }));
 
   const projectedQF = QF_PAIRS.map((_, i) => ({
     slotA: topCode(r16SlotWins[QF_PAIRS[i][0]]),
     slotB: topCode(r16SlotWins[QF_PAIRS[i][1]]),
-    winner: topCode(qfSlotWins[i]),
   }));
 
   const projectedSF = SF_PAIRS.map((_, i) => ({
     slotA: topCode(qfSlotWins[SF_PAIRS[i][0]]),
     slotB: topCode(qfSlotWins[SF_PAIRS[i][1]]),
-    winner: topCode(sfSlotWins[i]),
   }));
-
-  const projectedChampion = topCode(champCount);
 
   const projectedFinal = {
     slotA: topCode(sfSlotWins[0]),
     slotB: topCode(sfSlotWins[1]),
-    winner: projectedChampion,
   };
+
+  const projectedChampion = topCode(champCount);
 
   const knockout: KnockoutSimResult = {
     championProb: Object.fromEntries(
@@ -536,13 +456,7 @@ export function simulateGroupStage(
     projectedChampion,
   };
 
-  return {
-    groups,
-    groupStrengthRank: groupStrengths.map(s => s.group),
-    knockout,
-    simulationRuns: runCount,
-    modelVersion: MODEL_VERSION,
-  };
+  return { groups, knockout, simulationRuns: runCount, modelVersion: MODEL_VERSION };
 }
 
 // ── Real-result override utility ────────────────────────────────────────
@@ -563,190 +477,92 @@ export interface ResolvedBracket {
 
 export function buildResolvedBracket(
   sim: SimulationResult,
+  // realResults: map of "R32-0" → winner code, "R16-0" → winner code, etc.
   realResults: Record<string, string>,
+  // groupPositions: actual group standings codes e.g. { A: ['MEX','CZE','RSA','KOR'] }
   groupPositions?: Record<string, string[]>
 ): ResolvedBracket {
-  function predictedGroupTable(group: string): string[] {
-    const rows = sim.groups[group];
-    if (!rows || rows.length === 0) return [];
-
-    const used = new Set<string>();
-    const out: string[] = [];
-
-    const pick = (key: 'p1st' | 'p2nd' | 'p3rd' | 'p4th') => {
-      const candidate = [...rows]
-        .filter(r => !used.has(r.team.code))
-        .sort((a, b) => (b[key] ?? 0) - (a[key] ?? 0))[0];
-
-      if (candidate) {
-        used.add(candidate.team.code);
-        out.push(candidate.team.code);
-      }
-    };
-
-    pick('p1st');
-    pick('p2nd');
-    pick('p3rd');
-    pick('p4th');
-
-    return out;
-  }
-
-  function resolvedGroupTable(group: string): string[] {
-    const actual = groupPositions?.[group] || [];
-    const predicted = predictedGroupTable(group);
-    const merged: string[] = [];
-
-    for (const code of actual) {
-      if (code && !merged.includes(code)) merged.push(code);
-    }
-
-    for (const code of predicted) {
-      if (code && !merged.includes(code)) merged.push(code);
-    }
-
-    return merged;
-  }
-
+  // Resolve a group-slot label like '1A' to a team code
   function resolveGroupSlot(pos: string): string {
-    const group = pos.slice(1);
-    const table = resolvedGroupTable(group);
-
-    if (pos.startsWith('1')) return table[0] || 'TBD';
-    if (pos.startsWith('2')) return table[1] || 'TBD';
-    if (pos.startsWith('3')) return table[2] || 'TBD';
-
-    return 'TBD';
+    if (!groupPositions) {
+      // Fall back to simulation's most-likely group positions
+      const g = pos.slice(1);
+      const gData = sim.groups[g];
+      if (!gData) return 'TBD';
+      const sorted = [...gData].sort((a, b) => {
+        if (pos.startsWith('1')) return b.p1st - a.p1st;
+        if (pos.startsWith('2')) return b.p2nd - a.p2nd;
+        return b.p3rd - a.p3rd;
+      });
+      return sorted[0]?.team.code || 'TBD';
+    }
+    const g = pos.slice(1);
+    const rank = pos.startsWith('1') ? 0 : pos.startsWith('2') ? 1 : 2;
+    return groupPositions[g]?.[rank] || 'TBD';
   }
 
-  const predictedThirds = GROUP_NAMES
-    .map(group => {
-      const table = resolvedGroupTable(group);
-      const code = table[2];
-      const team = code ? getTeamByCode(code) : null;
-      return team ? { group, code, team } : null;
-    })
-    .filter(Boolean) as { group: string; code: string; team: WC2026Team }[];
+  // Seed R32
+  const r32Teams: [string, string][] = R32_MATCHUPS.map(([a, b]) => [
+    a.startsWith('3') ? 'TBD' : resolveGroupSlot(a),
+    b.startsWith('3') ? 'TBD' : resolveGroupSlot(b),
+  ]);
 
-  predictedThirds.sort((a, b) => (b.team.elo ?? 0) - (a.team.elo ?? 0));
-
-  const advancingThirdByGroup: Record<string, string> = Object.fromEntries(
-    predictedThirds.slice(0, 8).map(x => [x.group, x.code])
-  );
-
-  const thirdSlotAssignment = assignThirdPlaceSlots(advancingThirdByGroup);
-
-  function resolveSlot(pos: string): string {
-    if (pos.startsWith('P')) return thirdSlotAssignment[pos] || 'TBD';
-    return resolveGroupSlot(pos);
-  }
-
-  function winnerOf(
-    round: string,
-    idx: number,
-    fallback: string
-  ): { code: string; isActual: boolean } {
+  // Build each round, using real results where available
+  function winnerOf(round: string, idx: number, simWinner: string): { code: string; isActual: boolean } {
     const key = `${round}-${idx}`;
     if (realResults[key]) return { code: realResults[key], isActual: true };
-    return { code: fallback, isActual: false };
+    return { code: simWinner, isActual: false };
   }
 
   const r32: ResolvedBracket['r32'] = [];
   const r32Winners: string[] = [];
-
   for (let i = 0; i < 16; i++) {
-    const [slotA, slotB] = R32_MATCHUPS[i];
-    const home = resolveSlot(slotA);
-    const away = resolveSlot(slotB);
-
-    let fallbackWinner = sim.knockout.projectedR32?.[i]?.winner;
-    if (!fallbackWinner || fallbackWinner === 'TBD') {
-      fallbackWinner = home !== 'TBD' ? home : away;
-    }
-
-    const { code: winner, isActual } = winnerOf('R32', i, fallbackWinner);
+    const [home, away] = r32Teams[i];
+    const simW = sim.knockout.projectedR32[i]
+      ? (getTeamByCode(home)?.elo || 0) >= (getTeamByCode(away)?.elo || 0) ? home : away
+      : home;
+    const { code: winner, isActual } = winnerOf('R32', i, simW);
     r32.push({ home, away, winner, isActual });
     r32Winners.push(winner);
   }
 
   const r16: ResolvedBracket['r16'] = [];
   const r16Winners: string[] = [];
-
   for (let i = 0; i < 8; i++) {
     const [ai, bi] = R16_PAIRS[i];
-    const home = r32Winners[ai] || 'TBD';
-    const away = r32Winners[bi] || 'TBD';
-
-    let fallbackWinner = sim.knockout.projectedR16?.[i]?.winner;
-    if (!fallbackWinner || fallbackWinner === 'TBD') {
-      fallbackWinner = home !== 'TBD' ? home : away;
-    }
-
-    const { code: winner, isActual } = winnerOf('R16', i, fallbackWinner);
+    const home = r32Winners[ai], away = r32Winners[bi];
+    const simW = sim.knockout.projectedR16[i]?.slotA || home;
+    const { code: winner, isActual } = winnerOf('R16', i, simW);
     r16.push({ home, away, winner, isActual });
     r16Winners.push(winner);
   }
 
   const qf: ResolvedBracket['qf'] = [];
   const qfWinners: string[] = [];
-
   for (let i = 0; i < 4; i++) {
     const [ai, bi] = QF_PAIRS[i];
-    const home = r16Winners[ai] || 'TBD';
-    const away = r16Winners[bi] || 'TBD';
-
-    let fallbackWinner = sim.knockout.projectedQF?.[i]?.winner;
-    if (!fallbackWinner || fallbackWinner === 'TBD') {
-      fallbackWinner = home !== 'TBD' ? home : away;
-    }
-
-    const { code: winner, isActual } = winnerOf('QF', i, fallbackWinner);
+    const home = r16Winners[ai], away = r16Winners[bi];
+    const simW = sim.knockout.projectedQF[i]?.slotA || home;
+    const { code: winner, isActual } = winnerOf('QF', i, simW);
     qf.push({ home, away, winner, isActual });
     qfWinners.push(winner);
   }
 
   const sf: ResolvedBracket['sf'] = [];
   const sfWinners: string[] = [];
-
   for (let i = 0; i < 2; i++) {
     const [ai, bi] = SF_PAIRS[i];
-    const home = qfWinners[ai] || 'TBD';
-    const away = qfWinners[bi] || 'TBD';
-
-    let fallbackWinner = sim.knockout.projectedSF?.[i]?.winner;
-    if (!fallbackWinner || fallbackWinner === 'TBD') {
-      fallbackWinner = home !== 'TBD' ? home : away;
-    }
-
-    const { code: winner, isActual } = winnerOf('SF', i, fallbackWinner);
+    const home = qfWinners[ai], away = qfWinners[bi];
+    const simW = sim.knockout.projectedSF[i]?.slotA || home;
+    const { code: winner, isActual } = winnerOf('SF', i, simW);
     sf.push({ home, away, winner, isActual });
     sfWinners.push(winner);
   }
 
-  const finalHome = sfWinners[0] || 'TBD';
-  const finalAway = sfWinners[1] || 'TBD';
+  const finalHome = sfWinners[0], finalAway = sfWinners[1];
+  const simChamp = sim.knockout.projectedChampion;
+  const { code: finalWinner, isActual: finalIsActual } = winnerOf('Final', 0, simChamp);
+  const final = { home: finalHome, away: finalAway, winner: finalWinner, isActual: finalIsActual };
 
-  let finalFallbackWinner = sim.knockout.projectedFinal?.winner || sim.knockout.projectedChampion;
-  if (!finalFallbackWinner || finalFallbackWinner === 'TBD') {
-    finalFallbackWinner = finalHome !== 'TBD' ? finalHome : finalAway;
-  }
-
-  const { code: finalWinner, isActual: finalIsActual } = winnerOf(
-    'Final',
-    0,
-    finalFallbackWinner
-  );
-
-  return {
-    r32,
-    r16,
-    qf,
-    sf,
-    final: {
-      home: finalHome,
-      away: finalAway,
-      winner: finalWinner,
-      isActual: finalIsActual,
-    },
-  };
+  return { r32, r16, qf, sf, final };
 }
