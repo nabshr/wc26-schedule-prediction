@@ -98,83 +98,89 @@ const SF_SEEDING: Array<{ matchNum: number; fromQF: [number, number] }> = [
 // ── Derive predicted group positions from simulation ────────────────────
 export function getPredictedGroupPositions(
   sim: SimulationResult
-): Record<string, { first: string; second: string; thirds: string[] }> {
-  const result: Record<string, { first: string; second: string; thirds: string[] }> = {};
+): Record<string, { first: string; second: string; third: string }> {
+  const result: Record<string, { first: string; second: string; third: string }> = {};
 
   for (const g of GROUP_NAMES) {
     const groupData = sim.groups[g];
-    const sorted = [...groupData].sort((a, b) => b.p1st - a.p1st);
-    const bySecond = [...groupData].sort((a, b) => b.p2nd - a.p2nd);
-    const byThird = [...groupData].sort((a, b) => b.p3rd - a.p3rd);
 
-    const first = sorted[0].team.code;
-    const second = bySecond[0].team.code !== first
-      ? bySecond[0].team.code
-      : bySecond[1].team.code;
+    const first = [...groupData].sort((a, b) => b.p1st - a.p1st)[0].team.code;
 
-    result[g] = {
-      first,
-      second,
-      thirds: byThird
-        .filter(d => d.team.code !== first && d.team.code !== second)
-        .slice(0, 1)
-        .map(d => d.team.code),
-    };
+    const secondCandidates = [...groupData]
+      .filter(d => d.team.code !== first)
+      .sort((a, b) => b.p2nd - a.p2nd);
+    const second = secondCandidates[0]?.team.code ?? 'TBD';
+
+    const thirdCandidates = [...groupData]
+      .filter(d => d.team.code !== first && d.team.code !== second)
+      .sort((a, b) => b.p3rd - a.p3rd);
+    const third = thirdCandidates[0]?.team.code ?? 'TBD';
+
+    result[g] = { first, second, third };
   }
+
   return result;
+}
+
+function pickRandomThirdFromPool(
+  poolGroups: string[],
+  predicted: Record<string, { first: string; second: string; third: string }>,
+  actual: Record<string, string[]> | undefined,
+  usedThirdCodes: Set<string>
+): BracketTeamSlot | null {
+  const candidates: BracketTeamSlot[] = [];
+
+  for (const g of poolGroups) {
+    const actualCode = actual?.[g]?.[2];
+    if (actualCode && !usedThirdCodes.has(actualCode)) {
+      candidates.push({
+        code: actualCode,
+        label: `3rd Group ${g}`,
+        isActual: true,
+      });
+      continue;
+    }
+
+    const predictedCode = predicted[g]?.third;
+    if (predictedCode && predictedCode !== 'TBD' && !usedThirdCodes.has(predictedCode)) {
+      candidates.push({
+        code: predictedCode,
+        label: `3rd Group ${g}`,
+        isActual: false,
+      });
+    }
+  }
+
+  if (candidates.length === 0) return null;
+
+  const pick = candidates[Math.floor(Math.random() * candidates.length)];
+  usedThirdCodes.add(pick.code);
+  return pick;
 }
 
 // ── Resolve a slot label to a team code ────────────────────────────────
 function resolveSlot(
   slot: string,
-  predicted: Record<string, { first: string; second: string; thirds: string[] }>,
-  actual?: Record<string, string[]>
+  predicted: Record<string, { first: string; second: string; third: string }>,
+  actual: Record<string, string[]> | undefined,
+  usedThirdCodes: Set<string>
 ): BracketTeamSlot {
-  // Use actual if available
-  const source = actual || null;
-
   if (slot.startsWith('1')) {
     const g = slot.slice(1);
-    const code = source?.[g]?.[0] ?? predicted[g]?.first ?? 'TBD';
-    return { code, label: `1st Group ${g}`, isActual: !!source?.[g], prob: undefined };
+    const code = actual?.[g]?.[0] ?? predicted[g]?.first ?? 'TBD';
+    return { code, label: `1st Group ${g}`, isActual: !!actual?.[g] };
   }
 
   if (slot.startsWith('2')) {
     const g = slot.slice(1);
-    const code = source?.[g]?.[1] ?? predicted[g]?.second ?? 'TBD';
-    return { code, label: `2nd Group ${g}`, isActual: !!source?.[g], prob: undefined };
+    const code = actual?.[g]?.[1] ?? predicted[g]?.second ?? 'TBD';
+    return { code, label: `2nd Group ${g}`, isActual: !!actual?.[g] };
   }
 
   if (slot.startsWith('3')) {
     const poolGroups = slot.slice(1).split('');
-
-    if (source) {
-      for (const g of poolGroups) {
-        const code = source[g]?.[2];
-        if (code) {
-          return {
-            code,
-            label: `3rd Group ${g}`,
-            isActual: true,
-            prob: undefined,
-          };
-        }
-      }
-    }
-
-    for (const g of poolGroups) {
-      const code = predicted[g]?.thirds?.[0];
-      if (code) {
-        return {
-          code,
-          label: `3rd Group ${g}`,
-          isActual: false,
-          prob: undefined,
-        };
-      }
-    }
-
-    return { code: 'TBD', label: `3rd ${slot.slice(1)}`, isActual: false };
+    const picked = pickRandomThirdFromPool(poolGroups, predicted, actual, usedThirdCodes);
+    return picked ?? { code: 'TBD', label: `3rd ${slot.slice(1)}`, isActual: false };
   }
 
   return { code: 'TBD', label: slot, isActual: false };
@@ -187,14 +193,15 @@ export function buildOfficialBracket(
   actualKnockoutResults?: Record<string, string>    // 'R32-73' → winner code etc.
 ): ResolvedBracket {
   const predicted = getPredictedGroupPositions(sim);
+  const usedThirdCodes = new Set<string>();
 
   // Build lookup: matchNum → BracketMatch
   const matchMap = new Map<number, BracketMatch>();
 
   // ── R32 ──────────────────────────────────────────────────────────────
   const r32: BracketMatch[] = R32_SEEDING.map(s => {
-    const home = resolveSlot(s.home, predicted, actualGroupPositions);
-    const away = resolveSlot(s.away, predicted, actualGroupPositions);
+    const home = resolveSlot(s.home, predicted, actualGroupPositions, usedThirdCodes);
+    const away = resolveSlot(s.away, predicted, actualGroupPositions, usedThirdCodes);
 
     // Determine winner
     const realWinnerCode = actualKnockoutResults?.[`R32-${s.matchNum}`];
