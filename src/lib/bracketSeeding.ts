@@ -113,8 +113,8 @@ export function getPredictedGroupPositions(
         ? bySecond[0].team.code
         : bySecond[1].team.code,
       thirds: byThird
-        .filter(d => d.team.code !== sorted[0].team.code)
-        .slice(0, 2)
+        .filter(d => d.team.code !== first && d.team.code !== second)
+        .slice(0, 1)
         .map(d => d.team.code),
     };
   }
@@ -135,14 +135,45 @@ function resolveSlot(
     const code = source?.[g]?.[0] ?? predicted[g]?.first ?? 'TBD';
     return { code, label: `1st Group ${g}`, isActual: !!source?.[g], prob: undefined };
   }
+
   if (slot.startsWith('2')) {
     const g = slot.slice(1);
     const code = source?.[g]?.[1] ?? predicted[g]?.second ?? 'TBD';
     return { code, label: `2nd Group ${g}`, isActual: !!source?.[g], prob: undefined };
   }
+
   if (slot.startsWith('3')) {
+    const poolGroups = slot.slice(1).split('');
+
+    if (source) {
+      for (const g of poolGroups) {
+        const code = source[g]?.[2];
+        if (code) {
+          return {
+            code,
+            label: `3rd Group ${g}`,
+            isActual: true,
+            prob: undefined,
+          };
+        }
+      }
+    }
+
+    for (const g of poolGroups) {
+      const code = predicted[g]?.thirds?.[0];
+      if (code) {
+        return {
+          code,
+          label: `3rd Group ${g}`,
+          isActual: false,
+          prob: undefined,
+        };
+      }
+    }
+
     return { code: 'TBD', label: `3rd ${slot.slice(1)}`, isActual: false };
   }
+
   return { code: 'TBD', label: slot, isActual: false };
 }
 
