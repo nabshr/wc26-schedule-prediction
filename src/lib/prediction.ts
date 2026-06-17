@@ -552,24 +552,35 @@ export function buildResolvedBracket(
   realResults: Record<string, string>,
   groupPositions?: Record<string, string[]>
 ): ResolvedBracket {
-  function getPredictedGroupOrder(group: string): string[] {
-    const gData = sim.groups[group];
-    if (!gData || gData.length === 0) return [];
+  function predictedGroupTable(group: string): string[] {
+    const rows = sim.groups[group];
+    if (!rows || rows.length === 0) return [];
 
-    const first = [...gData].sort((a, b) => b.p1st - a.p1st)[0]?.team.code;
-    const secondPool = gData.filter(x => x.team.code !== first);
-    const second = [...secondPool].sort((a, b) => b.p2nd - a.p2nd)[0]?.team.code;
-    const thirdPool = secondPool.filter(x => x.team.code !== second);
-    const third = [...thirdPool].sort((a, b) => b.p3rd - a.p3rd)[0]?.team.code;
-    const fourthPool = thirdPool.filter(x => x.team.code !== third);
-    const fourth = fourthPool[0]?.team.code;
+    const used = new Set<string>();
+    const out: string[] = [];
 
-    return [first, second, third, fourth].filter(Boolean) as string[];
+    const pick = (key: 'p1st' | 'p2nd' | 'p3rd' | 'p4th') => {
+      const candidate = [...rows]
+        .filter(r => !used.has(r.team.code))
+        .sort((a, b) => (b[key] ?? 0) - (a[key] ?? 0))[0];
+
+      if (candidate) {
+        used.add(candidate.team.code);
+        out.push(candidate.team.code);
+      }
+    };
+
+    pick('p1st');
+    pick('p2nd');
+    pick('p3rd');
+    pick('p4th');
+
+    return out;
   }
 
-  function getMergedGroupOrder(group: string): string[] {
+  function resolvedGroupTable(group: string): string[] {
     const actual = groupPositions?.[group] || [];
-    const predicted = getPredictedGroupOrder(group);
+    const predicted = predictedGroupTable(group);
     const merged: string[] = [];
 
     for (const code of actual) {
@@ -585,28 +596,31 @@ export function buildResolvedBracket(
 
   function resolveGroupSlot(pos: string): string {
     const group = pos.slice(1);
-    const merged = getMergedGroupOrder(group);
+    const table = resolvedGroupTable(group);
 
-    if (pos.startsWith('1')) return merged[0] || 'TBD';
-    if (pos.startsWith('2')) return merged[1] || 'TBD';
-    if (pos.startsWith('3')) return merged[2] || 'TBD';
+    if (pos.startsWith('1')) return table[0] || 'TBD';
+    if (pos.startsWith('2')) return table[1] || 'TBD';
+    if (pos.startsWith('3')) return table[2] || 'TBD';
 
     return 'TBD';
   }
 
-  const thirdByGroup: Record<string, WC2026Team> = {};
+  const predictedThirds = GROUP_NAMES
+    .map(group => {
+      const table = resolvedGroupTable(group);
+      const code = table[2];
+      const team = code ? getTeamByCode(code) : null;
+      return team ? { group, code, team } : null;
+    })
+    .filter(Boolean) as { group: string; code: string; team: WC2026Team }[];
 
-  for (const g of GROUP_NAMES) {
-    const merged = getMergedGroupOrder(g);
-    const thirdCode = merged[2];
+  predictedThirds.sort((a, b) => (b.team.elo ?? 0) - (a.team.elo ?? 0));
 
-    if (thirdCode) {
-      const team = getTeamByCode(thirdCode);
-      if (team) thirdByGroup[g] = team;
-    }
-  }
+  const advancingThirdByGroup: Record<string, string> = Object.fromEntries(
+    predictedThirds.slice(0, 8).map(x => [x.group, x.code])
+  );
 
-  const thirdSlotAssignment = resolveThirdPlaceSlots(thirdByGroup);
+  const thirdSlotAssignment = assignThirdPlaceSlots(advancingThirdByGroup);
 
   function resolveSlot(pos: string): string {
     if (pos.startsWith('P')) return thirdSlotAssignment[pos] || 'TBD';
@@ -630,9 +644,13 @@ export function buildResolvedBracket(
     const [slotA, slotB] = R32_MATCHUPS[i];
     const home = resolveSlot(slotA);
     const away = resolveSlot(slotB);
-    const fallbackWinner = sim.knockout.projectedR32[i]?.winner || home || away || 'TBD';
-    const { code: winner, isActual } = winnerOf('R32', i, fallbackWinner);
 
+    let fallbackWinner = sim.knockout.projectedR32?.[i]?.winner;
+    if (!fallbackWinner || fallbackWinner === 'TBD') {
+      fallbackWinner = home !== 'TBD' ? home : away;
+    }
+
+    const { code: winner, isActual } = winnerOf('R32', i, fallbackWinner);
     r32.push({ home, away, winner, isActual });
     r32Winners.push(winner);
   }
@@ -705,12 +723,16 @@ export function buildResolvedBracket(
     finalFallbackWinner
   );
 
-  const final = {
-    home: finalHome,
-    away: finalAway,
-    winner: finalWinner,
-    isActual: finalIsActual,
+  return {
+    r32,
+    r16,
+    qf,
+    sf,
+    final: {
+      home: finalHome,
+      away: finalAway,
+      winner: finalWinner,
+      isActual: finalIsActual,
+    },
   };
-
-  return { r32, r16, qf, sf, final };
 }
