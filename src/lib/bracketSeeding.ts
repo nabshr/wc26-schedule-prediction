@@ -50,42 +50,42 @@ export const R32_SEEDING: Array<{
   r16Match: number;  // which R16 match this feeds into
 }> = [
   // TOP HALF → R16 M89 and M90 → QF M97 → SF M101
-  { matchNum: 73, home: '2A', away: '2B',         r16Match: 90 },
   { matchNum: 74, home: '1E', away: '3ABCDF',     r16Match: 89 },
-  { matchNum: 75, home: '1F', away: '2C',         r16Match: 90 },
-  { matchNum: 76, home: '1C', away: '2F',         r16Match: 91 },
   { matchNum: 77, home: '1I', away: '3CDFGH',     r16Match: 89 },
+  { matchNum: 73, home: '2A', away: '2B',         r16Match: 90 },
+  { matchNum: 75, home: '1F', away: '2C',         r16Match: 90 },
+  { matchNum: 83, home: '2K', away: '2L',         r16Match: 93 },
+  { matchNum: 84, home: '1H', away: '2J',         r16Match: 93 },
+  { matchNum: 81, home: '1D', away: '3BEFIJ',     r16Match: 94 },
+  { matchNum: 82, home: '1G', away: '3AEHIJ',     r16Match: 94 },  // (also listed as 3rd A/E/H/I/J)
+
+  // BOTTOM HALF → R16 M93, M94, M95, M96 → QF M99, M100 → SF M102
+  { matchNum: 76, home: '1C', away: '2F',         r16Match: 91 },
   { matchNum: 78, home: '2E', away: '2I',         r16Match: 91 },
   { matchNum: 79, home: '1A', away: '3CEFHI',     r16Match: 92 },
   { matchNum: 80, home: '1L', away: '3EHIJK',     r16Match: 92 },
-
-  // BOTTOM HALF → R16 M93, M94, M95, M96 → QF M99, M100 → SF M102
-  { matchNum: 81, home: '1D', away: '3BEFIJ',     r16Match: 94 },
-  { matchNum: 82, home: '1G', away: '3AEHIJ',     r16Match: 94 },  // (also listed as 3rd A/E/H/I/J)
-  { matchNum: 83, home: '2K', away: '2L',         r16Match: 93 },
-  { matchNum: 84, home: '1H', away: '2J',         r16Match: 93 },
-  { matchNum: 85, home: '1B', away: '3EFGIJ',     r16Match: 96 },
   { matchNum: 86, home: '1J', away: '2H',         r16Match: 95 },
-  { matchNum: 87, home: '1K', away: '3DEIJL',     r16Match: 96 },
   { matchNum: 88, home: '2D', away: '2G',         r16Match: 95 },
+  { matchNum: 85, home: '1B', away: '3EFGIJ',     r16Match: 96 },
+  { matchNum: 87, home: '1K', away: '3DEIJL',     r16Match: 96 },
 ];
 
 // R16: which two R32 match numbers feed each R16 match
 const R16_SEEDING: Array<{ matchNum: number; fromR32: [number, number]; qfMatch: number }> = [
   { matchNum: 89, fromR32: [74, 77], qfMatch: 97 },
   { matchNum: 90, fromR32: [73, 75], qfMatch: 97 },
-  { matchNum: 91, fromR32: [76, 78], qfMatch: 98 },
-  { matchNum: 92, fromR32: [79, 80], qfMatch: 98 },
   { matchNum: 93, fromR32: [83, 84], qfMatch: 99 },
   { matchNum: 94, fromR32: [81, 82], qfMatch: 99 },
+  { matchNum: 91, fromR32: [76, 78], qfMatch: 98 },
+  { matchNum: 92, fromR32: [79, 80], qfMatch: 98 },
   { matchNum: 95, fromR32: [86, 88], qfMatch: 100 },
   { matchNum: 96, fromR32: [85, 87], qfMatch: 100 },
 ];
 
 const QF_SEEDING: Array<{ matchNum: number; fromR16: [number, number]; sfMatch: number }> = [
   { matchNum: 97,  fromR16: [89, 90], sfMatch: 101 },
-  { matchNum: 98,  fromR16: [91, 92], sfMatch: 101 },
-  { matchNum: 99,  fromR16: [93, 94], sfMatch: 102 },
+  { matchNum: 98,  fromR16: [93, 94], sfMatch: 102 },
+  { matchNum: 99,  fromR16: [91, 92], sfMatch: 101 },
   { matchNum: 100, fromR16: [95, 96], sfMatch: 102 },
 ];
 
