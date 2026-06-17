@@ -295,10 +295,10 @@ export interface KnockoutSimResult {
   r32Prob: Record<string, number>;
   // Most-likely bracket: per R32 slot, most probable team
   projectedR32: Array<{ slotA: string; slotB: string; winner: string }>;   // codes
-  projectedR16: Array<{ slotA: string; slotB: string }>;
-  projectedQF:  Array<{ slotA: string; slotB: string }>;
-  projectedSF:  Array<{ slotA: string; slotB: string }>;
-  projectedFinal: { slotA: string; slotB: string };
+  projectedR16: Array<{ slotA: string; slotB: string; winner: string }>;
+  projectedQF:  Array<{ slotA: string; slotB: string; winner: string }>;
+  projectedSF:  Array<{ slotA: string; slotB: string; winner: string }>;
+  projectedFinal: { slotA: string; slotB: string; winner: string };
   projectedChampion: string;
 }
 
@@ -369,88 +369,50 @@ export function simulateGroupStage(
     }
 
     // ── Seed R32 using consistent third-place slot assignment ───────────
-    // Build predicted finishing order for each group from simulation output
-  const predictedOrderByGroup: Record<string, WC2026Team[]> = {};
+    const thirdTeamsByGroup: Record<string, WC2026Team> = {};
+    for (let i = 0; i < GROUP_NAMES.length; i++) {
+      thirdTeamsByGroup[GROUP_NAMES[i]] = groupThirds[i];
+    }
 
-  for (let i = 0; i < GROUP_NAMES.length; i++) {
-    const group = GROUP_NAMES[i];
-    const table = simGroups[group] || [];
+    const thirdSlotAssignment = resolveThirdPlaceSlots(thirdTeamsByGroup);
 
-    const used = new Set<string>();
-    const ordered: WC2026Team[] = [];
-
-    const pick = (key: 'p1st' | 'p2nd' | 'p3rd' | 'p4th') => {
-      const row = [...table]
-        .filter(r => !used.has(r.team.code))
-        .sort((a, b) => (b[key] ?? 0) - (a[key] ?? 0))[0];
-
-      if (row) {
-        used.add(row.team.code);
-        ordered.push(row.team);
+    function slotTeam(pos: string): WC2026Team {
+      if (pos.startsWith('1')) {
+        const group = pos.slice(1);
+        const idx = GROUP_NAMES.indexOf(group);
+        return groupWinners[idx];
       }
-    };
 
-    pick('p1st');
-    pick('p2nd');
-    pick('p3rd');
-    pick('p4th');
+      if (pos.startsWith('2')) {
+        const group = pos.slice(1);
+        const idx = GROUP_NAMES.indexOf(group);
+        return groupRunnerUps[idx];
+      }
 
-    predictedOrderByGroup[group] = ordered;
-  }
+      if (pos.startsWith('P')) {
+        const code = thirdSlotAssignment[pos];
+        const team = code && code !== 'TBD' ? getTeamByCode(code) : null;
+        if (team) return team;
+      }
 
-  const predictedThirds = GROUP_NAMES
-    .map(group => {
-      const team = predictedOrderByGroup[group]?.[2];
-      return team ? { group, team } : null;
-    })
-    .filter(Boolean) as { group: string; team: WC2026Team }[];
-
-  predictedThirds.sort((a, b) => (b.team.elo ?? 0) - (a.team.elo ?? 0));
-
-  const advancingThirdByGroup: Record<string, string> = Object.fromEntries(
-    predictedThirds.slice(0, 8).map(x => [x.group, x.team.code])
-  );
-
-  const thirdSlotAssignment = assignThirdPlaceSlots(advancingThirdByGroup);
-
-  function slotTeam(pos: string): WC2026Team {
-    if (pos.startsWith('1')) {
-      const group = pos.slice(1);
-      return predictedOrderByGroup[group]?.[0];
-    }
-
-    if (pos.startsWith('2')) {
-      const group = pos.slice(1);
-      return predictedOrderByGroup[group]?.[1];
-    }
-
-    if (pos.startsWith('P')) {
-      const code = thirdSlotAssignment[pos];
-      const team = code ? getTeamByCode(code) : null;
-      if (team) return team;
-    }
-
-    const fallback =
-      predictedOrderByGroup[GROUP_NAMES[0]]?.[0] ||
-      predictedOrderByGroup[GROUP_NAMES[1]]?.[0];
-
-    if (!fallback) {
       throw new Error(`Unable to resolve bracket slot: ${pos}`);
     }
 
-    return fallback;
-  }
+    const r32Winners: WC2026Team[] = [];
 
-  const projectedR32 = R32_MATCHUPS.map(([a, b]) => {
-    const home = slotTeam(a);
-    const away = slotTeam(b);
-    const winner = pickKnockoutWinner(home, away, rng);
-    return {
-      home: home.code,
-      away: away.code,
-      winner: winner.code,
-    };
-  });
+    for (let i = 0; i < 16; i++) {
+      const [slotA, slotB] = R32_MATCHUPS[i];
+      const teamA = slotTeam(slotA);
+      const teamB = slotTeam(slotB);
+
+      r32Count[teamA.code] = (r32Count[teamA.code] || 0) + 1;
+      r32Count[teamB.code] = (r32Count[teamB.code] || 0) + 1;
+
+      const winner = simulateKnockout(teamA, teamB, rng);
+      r32Winners.push(winner);
+
+      r32SlotWins[i][winner.code] = (r32SlotWins[i][winner.code] || 0) + 1;
+    }
 
     // ── R16 ────────────────────────────────────────────────────────────
     const r16Winners: WC2026Team[] = [];
@@ -527,21 +489,25 @@ export function simulateGroupStage(
   const projectedR16 = R16_PAIRS.map((_, i) => ({
     slotA: topCode(r32SlotWins[R16_PAIRS[i][0]]),
     slotB: topCode(r32SlotWins[R16_PAIRS[i][1]]),
+    winner: topCode(r16SlotWins[i]),
   }));
 
   const projectedQF = QF_PAIRS.map((_, i) => ({
     slotA: topCode(r16SlotWins[QF_PAIRS[i][0]]),
     slotB: topCode(r16SlotWins[QF_PAIRS[i][1]]),
+    winner: topCode(qfSlotWins[i]),
   }));
 
   const projectedSF = SF_PAIRS.map((_, i) => ({
     slotA: topCode(qfSlotWins[SF_PAIRS[i][0]]),
     slotB: topCode(qfSlotWins[SF_PAIRS[i][1]]),
+    winner: topCode(sfSlotWins[i]),
   }));
 
   const projectedFinal = {
     slotA: topCode(sfSlotWins[0]),
     slotB: topCode(sfSlotWins[1]),
+    winner: projectedChampion,
   };
 
   const projectedChampion = topCode(champCount);
