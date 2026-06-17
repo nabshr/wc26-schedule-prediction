@@ -64,7 +64,7 @@ function deriveActualKnockoutResults(
   const STAGE_KEY: Record<string, string> = { r32: 'R32', r16: 'R16', qf: 'QF', sf: 'SF', final: 'Final' };
   // Match numbers for each stage (in official order)
   const STAGE_MATCH_NUMS: Record<string, number[]> = {
-    r32: [73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88],
+    r32: [74,77,73,75,83,84,81,82,76,78,79,80,86,88,85,87],
     r16: [89,90,91,92,93,94,95,96],
     qf:  [97,98,99,100],
     sf:  [101,102],
