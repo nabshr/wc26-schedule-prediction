@@ -52,33 +52,42 @@ function deriveActualKnockoutResults(
   fixtures: ReturnType<typeof useWC2026Fixtures>['fixtures']
 ): Record<string, string> {
   const results: Record<string, string> = {};
-  const knockoutFixtures = fixtures.filter(
-    f => f.status === 'completed' && f.stage !== 'group' && f.winnerCode
-  );
-  for (const f of knockoutFixtures) {
-    const winnerCode = f.winnerCode === 'home' ? f.home
-      : f.winnerCode === 'away' ? f.away
-      : f.winnerCode || null;
-    if (!winnerCode || winnerCode === 'draw') continue;
 
-    // Map fixture stage to bracket key
-    let roundKey = '';
-    if (f.stage === 'r32') roundKey = 'R32';
-    else if (f.stage === 'r16') roundKey = 'R16';
-    else if (f.stage === 'qf') roundKey = 'QF';
-    else if (f.stage === 'sf') roundKey = 'SF';
-    else if (f.stage === 'final') roundKey = 'Final';
+  const byStage: Record<string, typeof fixtures> = {};
+  for (const f of fixtures) {
+    if (f.stage === 'group') continue;
+    (byStage[f.stage] ||= []).push(f);
+  }
 
+  for (const stage of Object.keys(byStage)) {
+    byStage[stage].sort((a, b) => (a.date + a.timeUTC).localeCompare(b.date + b.timeUTC));
+  }
+
+  const roundKeyByStage: Record<string, string> = {
+    r32: 'R32',
+    r16: 'R16',
+    qf: 'QF',
+    sf: 'SF',
+    final: 'Final',
+  };
+
+  for (const f of fixtures) {
+    if (f.status !== 'completed' || !f.winnerCode) continue;
+
+    const roundKey = roundKeyByStage[f.stage];
     if (!roundKey) continue;
 
-    // Find the match index within this round based on team codes
-    const matchIdx = knockoutFixtures
-      .filter(x => x.stage === f.stage)
-      .sort((a, b) => (a.date + a.timeUTC).localeCompare(b.date + b.timeUTC))
-      .indexOf(f);
+    const winnerCode =
+      f.winnerCode === 'home' ? f.home :
+      f.winnerCode === 'away' ? f.away :
+      f.winnerCode;
 
+    if (!winnerCode || winnerCode === 'draw') continue;
+
+    const matchIdx = byStage[f.stage].indexOf(f);
     if (matchIdx >= 0) results[`${roundKey}-${matchIdx}`] = winnerCode;
   }
+
   return results;
 }
 

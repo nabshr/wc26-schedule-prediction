@@ -6,6 +6,7 @@ import TeamBadge from '../components/TeamBadge';
 import { GROUP_NAMES, getTeamsByGroup, getTeamByCode } from '../data/worldCup2026';
 import { simulateGroupStage, type GroupProbabilities } from '../lib/prediction';
 import { useWC2026Fixtures, type MergedFixture } from '../lib/useWC2026Fixtures';
+import { DEFAULT_SIMULATION_RUNS, SIMULATION_SEED } from '../lib/simulationConfig';
 
 function toNepalTime(dateStr: string, timeStr: string): string {
   const [h, m] = timeStr.split(':').map(Number);
@@ -281,7 +282,7 @@ function ProbabilitiesTab({ simData }: { simData: GroupProbabilities[] }) {
 }
 
 export default function Groups() {
-  const sim = useMemo(() => simulateGroupStage(30000, 2026), []);
+  const sim = useMemo(() => simulateGroupStage(DEFAULT_SIMULATION_RUNS, SIMULATION_SEED), []);
   const { fixtures: allFixtures } = useWC2026Fixtures();
 
   return (
