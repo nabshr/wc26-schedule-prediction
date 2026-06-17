@@ -7,16 +7,11 @@ import TeamBadge from '../components/TeamBadge';
 import ProbabilityBar from '../components/ProbabilityBar';
 import { WC2026_TEAMS, CONFEDERATION_META, getTeamByCode } from '../data/worldCup2026';
 import { simulateGroupStage, type GroupProbabilities } from '../lib/prediction';
+import { DEFAULT_SIMULATION_RUNS, SIMULATION_SEED } from '../lib/simulationConfig';
 
 function TeamFocusSelector({
-  teams,
-  selected,
-  onSelect,
-}: {
-  teams: typeof WC2026_TEAMS;
-  selected: string;
-  onSelect: (code: string) => void;
-}) {
+  teams, selected, onSelect,
+}: { teams: typeof WC2026_TEAMS; selected: string; onSelect: (code: string) => void }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const ref = useRef<HTMLDivElement>(null);
@@ -52,9 +47,7 @@ function TeamFocusSelector({
         <div className="absolute top-full left-0 right-0 mt-1 z-50 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-xl max-h-64 overflow-y-auto">
           <div className="p-2 border-b border-slate-100 dark:border-slate-700">
             <input
-              autoFocus
-              value={query}
-              onChange={e => setQuery(e.target.value)}
+              autoFocus value={query} onChange={e => setQuery(e.target.value)}
               placeholder="Search teams..."
               className="w-full px-2 py-1.5 text-sm rounded-lg border border-slate-200 dark:border-slate-600 bg-transparent text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-brand-500"
             />
@@ -63,9 +56,7 @@ function TeamFocusSelector({
             <button
               key={t.code}
               onClick={() => { onSelect(t.code); setOpen(false); setQuery(''); }}
-              className={`w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors ${
-                t.code === selected ? 'bg-brand-50 dark:bg-brand-500/10' : ''
-              }`}
+              className={`w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors ${t.code === selected ? 'bg-brand-50 dark:bg-brand-500/10' : ''}`}
             >
               <TeamBadge name={t.name} code={t.code} size="sm" />
               <span className="text-[10px] text-slate-400 ml-auto">Elo {t.elo}</span>
@@ -78,39 +69,47 @@ function TeamFocusSelector({
 }
 
 export default function LiveForecast() {
-  const sim = useMemo(() => simulateGroupStage(30000, 2026), []);
+  const sim = useMemo(() => simulateGroupStage(DEFAULT_SIMULATION_RUNS, SIMULATION_SEED), []);
   const [focusTeam, setFocusTeam] = useState('FRA');
 
-  const allProbs = useMemo(
-    () => Object.values(sim.groups).flat(),
-    [sim]
-  );
+  const allProbs = useMemo(() => Object.values(sim.groups).flat(), [sim]);
 
   const focusData = useMemo(
     () => allProbs.find(td => td.team.code === focusTeam),
     [allProbs, focusTeam]
   );
 
-  const top5 = useMemo(
-    () => [...allProbs].sort((a, b) => b.p1st - a.p1st).slice(0, 5),
-    [allProbs]
-  );
+  // Top 5 by champion probability (from full knockout sim)
+  const top5 = useMemo(() => {
+    return WC2026_TEAMS
+      .map(t => ({
+        team: t,
+        championProb: sim.knockout.championProb[t.code] || 0,
+        groupData: allProbs.find(gp => gp.team.code === t.code),
+      }))
+      .sort((a, b) => b.championProb - a.championProb)
+      .slice(0, 5);
+  }, [sim, allProbs]);
 
   const biggestDangers = useMemo(
-    () => WC2026_TEAMS.filter(t => t.elo >= 1900).sort((a, b) => b.elo - a.elo).slice(0, 5),
+    () => WC2026_TEAMS.filter(t => t.elo >= 1850).sort((a, b) => b.elo - a.elo).slice(0, 5),
     []
   );
 
-  // Estimate knockout round progression probabilities
-  // These are rough estimates based on p1st and Elo
+  // Get round probabilities from full knockout simulation
   function getKnockoutProbs(td: GroupProbabilities) {
-    const pR32 = td.pAdvance;
-    const pR16 = pR32 * Math.min(0.85, 0.5 + (td.team.elo - 1500) / 2000);
-    const pQF = pR16 * Math.min(0.8, 0.4 + (td.team.elo - 1500) / 2500);
-    const pSF = pQF * Math.min(0.75, 0.35 + (td.team.elo - 1600) / 3000);
-    const pFinal = pSF * Math.min(0.7, 0.3 + (td.team.elo - 1700) / 3000);
-    const pChampion = pFinal * Math.min(0.65, 0.25 + (td.team.elo - 1800) / 4000);
-    return { pR32, pR16, pQF, pSF, pFinal, pChampion };
+    const code = td.team.code;
+    return {
+      pR32: td.pAdvance,
+      pR16: (sim.knockout.r16Prob[code] || 0),
+      pQF:  (sim.knockout.qfProb[code] || 0),
+      pSF:  (sim.knockout.sfProb[code] || 0),
+      pFinal: (
+        (sim.knockout.sfProb[code] || 0) * 0.5 +
+        (sim.knockout.championProb[code] || 0)
+      ),
+      pChampion: (sim.knockout.championProb[code] || 0),
+    };
   }
 
   return (
@@ -128,21 +127,21 @@ export default function LiveForecast() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <GlassPanel className="lg:col-span-2">
-          <SectionHeader title="Tournament Win Probability" subtitle="Top 5 teams by probability of winning" icon={<TrendingUp className="w-5 h-5" />} />
+          <SectionHeader title="Tournament Win Probability" subtitle="Top 5 teams by champion probability (full bracket simulation)" icon={<TrendingUp className="w-5 h-5" />} />
           <div className="mt-4 space-y-4">
-            {top5.map((td, i) => (
-              <div key={td.team.code}>
+            {top5.map(({ team, championProb, groupData }, i) => (
+              <div key={team.code}>
                 <div className="flex items-center justify-between mb-1.5">
                   <div className="flex items-center gap-3">
                     <span className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold ${
                       i === 0 ? 'bg-gold-500/10 text-gold-600 dark:bg-gold-500/20 dark:text-gold-400' : 'bg-slate-100 dark:bg-slate-700 text-slate-500'
                     }`}>{i + 1}</span>
-                    <TeamBadge name={td.team.name} code={td.team.code} size="md" />
-                    <span className="text-xs text-slate-400">Elo {td.team.elo}</span>
+                    <TeamBadge name={team.name} code={team.code} size="md" />
+                    <span className="text-xs text-slate-400">Elo {team.elo}</span>
                   </div>
-                  <span className="text-lg font-bold text-brand-600 dark:text-brand-400">{td.p1st.toFixed(1)}%</span>
+                  <span className="text-lg font-bold text-brand-600 dark:text-brand-400">{championProb.toFixed(1)}%</span>
                 </div>
-                <ProbabilityBar label="" value={td.p1st} size="md" color={i === 0 ? 'bg-gold-500' : 'bg-brand-500'} showPercent={false} />
+                <ProbabilityBar label="" value={championProb} size="md" color={i === 0 ? 'bg-gold-500' : 'bg-brand-500'} showPercent={false} />
               </div>
             ))}
           </div>
@@ -187,7 +186,7 @@ export default function LiveForecast() {
         <RoundedCard hover={false}>
           <SectionHeader
             title={`${focusData.team.name} — Progression Forecast`}
-            subtitle={`Round-by-round knockout progression probability`}
+            subtitle="Round-by-round knockout progression probability (from 50K full bracket simulation)"
             icon={<Target className="w-5 h-5" />}
           />
           <div className="mt-4 space-y-4">
@@ -239,9 +238,9 @@ export default function LiveForecast() {
       <div className="flex items-center justify-center gap-4 text-[10px] text-slate-400 py-2">
         <span>Model: {sim.modelVersion}</span>
         <span>|</span>
-        <span>Runs: {sim.simulationRuns.toLocaleString()}</span>
+        <span>Runs: {sim.simulationRuns.toLocaleString()} (50K Monte Carlo)</span>
         <span>|</span>
-        <span>Knockout progression: Elo-based estimates</span>
+        <span>Full bracket simulation including knockout rounds</span>
       </div>
     </div>
   );

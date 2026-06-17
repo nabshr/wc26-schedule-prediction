@@ -30,189 +30,145 @@ const TEAM_MAP: Record<string, string> = {
   "Croatia": "CRO", "Ghana": "GHA", "Panama": "PAN",
 };
 
-const DAILY_API_BUDGET = 2000;
-const PREMATCH_WINDOW_MINUTES = 60;
-const LIVE_LOOKBACK_MINUTES = 5;
-
-function mapStatus(shortStatus: string): string {
-  const s = shortStatus?.toLowerCase() || "";
-  if (s === "ft" || s === "aet" || s === "pen" || s === "awd" || s === "wo") return "completed";
-  if (["1h", "2h", "ht", "et", "bt", "p", "susd", "int", "live"].includes(s)) return "live";
-  if (s === "ns" || s === "tbd") return "scheduled";
-  if (s === "pst" || s === "canc" || s === "abd") return "postponed";
-  return "scheduled";
-}
+const MATCH_DURATION_MS = 3 * 60 * 60 * 1000;
+const PRE_MATCH_WINDOW_MS = 60 * 60 * 1000;
+const NON_MATCH_INTERVAL_MS = 30 * 60 * 1000;
+const IN_WINDOW_DOUBLE_FETCH_GAP_MS = 30 * 1000;
 
 function resolveTeamCode(name: string): string | null {
   return TEAM_MAP[name] || null;
 }
 
 Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { status: 200, headers: corsHeaders });
-  }
+  if (req.method === "OPTIONS") return new Response(null, { status: 200, headers: corsHeaders });
 
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
   );
 
-  const apiKey = Deno.env.get("API_FOOTBALL_KEY");
-  if (!apiKey) {
-    return new Response(JSON.stringify({
-      error: "API_FOOTBALL_KEY not configured.",
-    }), { status: 500, headers: { "Content-Type": "application/json", ...corsHeaders } });
+  const backupKey = Deno.env.get("FOOTBALL_DATA_ORG_KEY");
+  if (!backupKey) {
+    return new Response(JSON.stringify({ error: "FOOTBALL_DATA_ORG_KEY not configured." }),
+      { status: 500, headers: { "Content-Type": "application/json", ...corsHeaders } });
   }
 
-  // Rate limit guard
-  const todayStart = new Date();
-  todayStart.setUTCHours(0, 0, 0, 0);
-  const { count: todayApiCalls } = await supabase
-    .from("sync_runs")
-    .select("*", { count: "exact", head: true })
-    .in("sync_type", ["fixtures", "live"])
-    .in("status", ["success", "running"])
-    .gte("started_at", todayStart.toISOString());
+  const now = Date.now();
 
-  if ((todayApiCalls || 0) >= DAILY_API_BUDGET) {
-    return new Response(JSON.stringify({
-      message: `Daily API budget reached (${todayApiCalls}/${DAILY_API_BUDGET}). Skipping.`,
-      status: "rate_limited",
-      daily_calls: todayApiCalls,
-    }), { headers: { "Content-Type": "application/json", ...corsHeaders } });
+  const { data: candidates } = await supabase
+    .from("wc2026_fixtures")
+    .select("kickoff_utc, match_status")
+    .neq("match_status", "completed")
+    .gte("kickoff_utc", new Date(now - MATCH_DURATION_MS).toISOString())
+    .lte("kickoff_utc", new Date(now + PRE_MATCH_WINDOW_MS).toISOString());
+
+  const inMatchWindow = (candidates || []).some((f: any) => {
+    const kickoff = new Date(f.kickoff_utc).getTime();
+    return now >= kickoff - PRE_MATCH_WINDOW_MS && now <= kickoff + MATCH_DURATION_MS;
+  });
+
+  if (!inMatchWindow) {
+    const { data: lastRun } = await supabase
+      .from("sync_runs")
+      .select("started_at")
+      .eq("sync_type", "live")
+      .in("status", ["success", "error"])
+      .order("started_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (lastRun && now - new Date(lastRun.started_at).getTime() < NON_MATCH_INTERVAL_MS) {
+      return new Response(JSON.stringify({
+        message: "Outside match window; throttled to 30-minute interval.",
+        status: "skipped", in_match_window: false,
+      }), { headers: { "Content-Type": "application/json", ...corsHeaders } });
+    }
   }
 
-  // Concurrency guard: prevent overlapping live syncs
   const { data: runningSyncs } = await supabase
-    .from("sync_runs")
-    .select("id")
-    .eq("sync_type", "live")
-    .eq("status", "running")
-    .gt("started_at", new Date(Date.now() - 2 * 60 * 1000).toISOString())
-    .limit(1);
+    .from("sync_runs").select("id").eq("sync_type", "live").eq("status", "running")
+    .gt("started_at", new Date(now - 2 * 60 * 1000).toISOString()).limit(1);
 
   if (runningSyncs && runningSyncs.length > 0) {
-    return new Response(JSON.stringify({
-      message: "Live sync already in progress. Skipping.",
-      status: "skipped",
-    }), { headers: { "Content-Type": "application/json", ...corsHeaders } });
+    return new Response(JSON.stringify({ message: "Live sync already running.", status: "skipped" }),
+      { headers: { "Content-Type": "application/json", ...corsHeaders } });
   }
 
-  // Live window guard:
-  // Run when a match is live OR kickoff is within the next 60 minutes.
-  const now = new Date();
-  const windowStart = new Date(now.getTime() - LIVE_LOOKBACK_MINUTES * 60 * 1000);
-  const windowEnd = new Date(now.getTime() + PREMATCH_WINDOW_MINUTES * 60 * 1000);
+  const results: any[] = [];
+  results.push(await runSync(supabase, backupKey, inMatchWindow));
 
-  const { data: liveFixtures } = await supabase
-    .from("wc2026_fixtures")
-    .select("provider_fixture_id")
-    .eq("match_status", "live");
-
-  const liveProviderIds = (liveFixtures || [])
-    .map((f: any) => f.provider_fixture_id)
-    .filter(Boolean);
-
-  const hasLive = liveProviderIds.length > 0;
-
-  const { count: upcomingInWindow } = await supabase
-    .from("wc2026_fixtures")
-    .select("*", { count: "exact", head: true })
-    .eq("match_status", "scheduled")
-    .gt("kickoff_utc", now.toISOString())
-    .lte("kickoff_utc", windowEnd.toISOString());
-
-  if (!hasLive && (upcomingInWindow || 0) === 0) {
-    return new Response(JSON.stringify({
-      message: "No live match and no kickoff within next 60 minutes. Skipping.",
-      status: "no_live_window",
-      has_live: false,
-      upcoming_in_window: 0,
-      daily_calls: todayApiCalls,
-      polling_mode: "idle",
-    }), { headers: { "Content-Type": "application/json", ...corsHeaders } });
+  if (inMatchWindow) {
+    await new Promise(r => setTimeout(r, IN_WINDOW_DOUBLE_FETCH_GAP_MS));
+    results.push(await runSync(supabase, backupKey, inMatchWindow));
   }
 
-  const { data: config } = await supabase
-    .from("provider_config")
-    .select("*")
-    .eq("is_active", true)
-    .limit(1)
-    .single();
+  return new Response(JSON.stringify({ in_match_window: inMatchWindow, runs: results }),
+    { headers: { "Content-Type": "application/json", ...corsHeaders } });
+});
 
-  const competitionId = config?.competition_id || 1;
-  const season = config?.season || 2026;
-  const baseUrl = config?.base_url || "https://v3.football.api-sports.io";
-
+async function runSync(supabase: any, backupKey: string, inMatchWindow: boolean) {
   const { data: syncRun } = await supabase
     .from("sync_runs")
-    .insert({ sync_type: "live", provider_name: "api-football", status: "running", is_live_match: hasLive })
-    .select("id")
-    .single();
+    .insert({ sync_type: "live", provider_name: "football-data.org", status: "running" })
+    .select("id").single();
 
   const syncRunId = syncRun?.id;
+  const meta: Record<string, any> = { provider: "football-data.org", in_match_window: inMatchWindow };
 
   try {
-    const requestUrl = `${baseUrl}/fixtures?league=${competitionId}&season=${season}&live=all`;
-    const response = await fetch(requestUrl, {
-      headers: { "x-apisports-key": apiKey },
-    });
-
-    // Capture rate-limit headers
-    const providerMeta: Record<string, any> = {
-      request_url: requestUrl,
-      http_status: response.status,
-    };
-    const remaining = response.headers.get("x-ratelimit-requests-remaining");
-    const limit = response.headers.get("x-ratelimit-requests-limit");
-    if (remaining) providerMeta.rate_limit_remaining = parseInt(remaining);
-    if (limit) providerMeta.rate_limit_limit = parseInt(limit);
-
-    if (!response.ok) {
-      const errBody = await response.text();
-      providerMeta.error_body = errBody.slice(0, 500);
-      await supabase
-        .from("sync_runs")
-        .update({
-          status: "error",
-          finished_at: new Date().toISOString(),
-          last_error: `API-Football HTTP ${response.status}`,
-          error_count: 1,
-          metadata: providerMeta,
-        })
-        .eq("id", syncRunId);
-
-      return new Response(JSON.stringify({
-        error: `API-Football HTTP ${response.status}`,
-        provider_meta: providerMeta,
-      }), { status: 502, headers: { "Content-Type": "application/json", ...corsHeaders } });
+    const url = "https://api.football-data.org/v4/competitions/WC/matches?season=2026";
+    let resp: Response;
+    try {
+      resp = await fetch(url, { headers: { "X-Auth-Token": backupKey } });
+    } catch (fetchErr: any) {
+      meta.first_attempt_error = fetchErr?.message || String(fetchErr);
+      await new Promise(r => setTimeout(r, 1000));
+      resp = await fetch(url, { headers: { "X-Auth-Token": backupKey } });
     }
 
-    const data = await response.json();
-    const apiFixtures = data.response || [];
-    providerMeta.results_count = apiFixtures.length;
-    providerMeta.api_message = data.message || null;
+    meta.http_status = resp.status;
+    meta.request_url = url;
 
-    let updated = 0;
-    let errors = 0;
-    let liveCount = 0;
-    let skipped = 0;
+    if (!resp.ok) {
+      const errBody = await resp.text();
+      meta.error_body = errBody.slice(0, 500);
+      await supabase.from("sync_runs").update({
+        status: "error", finished_at: new Date().toISOString(),
+        last_error: `HTTP ${resp.status}`, error_count: 1, metadata: meta,
+      }).eq("id", syncRunId);
+      return { status: "error", http_status: resp.status };
+    }
 
-    for (const fixture of apiFixtures) {
+    const data = await resp.json();
+    const matches = data.matches || [];
+    meta.matches_count = matches.length;
+
+    let updated = 0, errors = 0, skipped = 0;
+    let unmappedTeams: string[] = [];
+    let insertErrorSamples: string[] = [];
+
+    for (const match of matches) {
       try {
-        const homeName = fixture.teams?.home?.name;
-        const awayName = fixture.teams?.away?.name;
+        const homeName = match.homeTeam?.name || match.homeTeam?.shortName;
+        const awayName = match.awayTeam?.name || match.awayTeam?.shortName;
         const homeCode = resolveTeamCode(homeName);
         const awayCode = resolveTeamCode(awayName);
 
-        if (!homeCode || !awayCode) { skipped++; continue; }
+        if (!homeCode || !awayCode) {
+          if (!homeCode && homeName) unmappedTeams.push(homeName);
+          if (!awayCode && awayName) unmappedTeams.push(awayName);
+          skipped++; continue;
+        }
 
-        const providerFixtureId = fixture.fixture?.id;
-        const shortStatus = fixture.fixture?.status?.short || "NS";
-        const matchStatus = mapStatus(shortStatus);
-        const matchMinute = fixture.fixture?.status?.elapsed || null;
-        const homeScore = fixture.goals?.home ?? null;
-        const awayScore = fixture.goals?.away ?? null;
+        const kickoff = match.utcDate;
+        const status = match.status;
+        let matchStatus = "scheduled";
+        if (status === "FINISHED") matchStatus = "completed";
+        else if (status === "IN_PLAY" || status === "PAUSED") matchStatus = "live";
+        else if (status === "POSTPONED" || status === "CANCELLED") matchStatus = "postponed";
+
+        const homeScore = match.score?.fullTime?.home ?? null;
+        const awayScore = match.score?.fullTime?.away ?? null;
 
         let winnerCode: string | null = null;
         if (matchStatus === "completed" && homeScore !== null && awayScore !== null) {
@@ -221,174 +177,102 @@ Deno.serve(async (req: Request) => {
           else winnerCode = "draw";
         }
 
-        if (matchStatus === "live") liveCount++;
+        const group = match.group;
+        let stage = "group";
+        let groupName: string | null = null;
+        if (group) {
+          groupName = group.replace(/[^A-L]/g, "").slice(-1) || null;
+          stage = "group";
+        } else {
+          const stageStr = (match.stage || "").toLowerCase();
+          if (stageStr.includes("last_32") || stageStr.includes("round_of_32")) stage = "r32";
+          else if (stageStr.includes("last_16") || stageStr.includes("round_of_16")) stage = "r16";
+          else if (stageStr.includes("quarter")) stage = "qf";
+          else if (stageStr.includes("semi")) stage = "sf";
+          else if (stageStr.includes("third")) stage = "third";
+          else if (stageStr.includes("final")) stage = "final";
+        }
 
-        // Don't blank out existing scores
+        const providerFixtureId = `fd-${match.id}`;
+
         const { data: existing } = await supabase
           .from("wc2026_fixtures")
-          .select("home_score, data_source")
-          .eq("provider_fixture_id", providerFixtureId)
-          .maybeSingle();
+          .select("home_score, away_score, match_status")
+          .eq("home_team_code", homeCode).eq("away_team_code", awayCode)
+          .eq("kickoff_utc", kickoff).limit(1).maybeSingle();
 
-        if (existing && homeScore === null && existing.home_score !== null) {
-          skipped++;
-          continue;
-        }
+        if (existing && homeScore === null && existing.home_score !== null) { skipped++; continue; }
 
         const row: Record<string, any> = {
-          home_score: homeScore,
-          away_score: awayScore,
-          match_status: matchStatus,
-          status_detail: shortStatus,
-          match_minute: matchMinute,
-          winner_code: winnerCode,
-          last_synced_at: new Date().toISOString(),
-          data_source: "api-football",
+          provider_fixture_id: providerFixtureId, stage, group_name: groupName,
+          matchday: match.matchday || null, kickoff_utc: kickoff,
+          home_team_code: homeCode, away_team_code: awayCode,
+          home_score: homeScore, away_score: awayScore,
+          match_status: matchStatus, status_detail: status,
+          match_minute: null, winner_code: winnerCode,
+          last_synced_at: new Date().toISOString(), data_source: "football-data.org",
         };
 
-        const { error: updateError } = await supabase
-          .from("wc2026_fixtures")
-          .update(row)
-          .eq("provider_fixture_id", providerFixtureId);
-
-        if (updateError) errors++;
-        else updated++;
-      } catch {
-        errors++;
-      }
-    }
-
-    // Check previously-live fixtures that might have finished
-    for (const providerId of liveProviderIds) {
-      const wasInApiResponse = apiFixtures.some((f: any) => f.fixture?.id === providerId);
-      if (!wasInApiResponse) {
-        if ((todayApiCalls || 0) + 1 >= DAILY_API_BUDGET) break;
-        const checkUrl = `${baseUrl}/fixtures?id=${providerId}`;
-        try {
-          const checkResp = await fetch(checkUrl, { headers: { "x-apisports-key": apiKey } });
-          if (checkResp.ok) {
-            const checkData = await checkResp.json();
-            const fixture = checkData.response?.[0];
-            if (fixture) {
-              const shortStatus = fixture.fixture?.status?.short || "";
-              const matchStatus = mapStatus(shortStatus);
-              if (matchStatus === "completed") {
-                const homeScore = fixture.goals?.home ?? null;
-                const awayScore = fixture.goals?.away ?? null;
-                const homeCode = resolveTeamCode(fixture.teams?.home?.name);
-                const awayCode = resolveTeamCode(fixture.teams?.away?.name);
-
-                let winnerCode: string | null = null;
-                if (homeScore !== null && awayScore !== null) {
-                  if (homeScore > awayScore) winnerCode = homeCode;
-                  else if (awayScore > homeScore) winnerCode = awayCode;
-                  else winnerCode = "draw";
-                }
-
-                await supabase
-                  .from("wc2026_fixtures")
-                  .update({
-                    home_score: homeScore,
-                    away_score: awayScore,
-                    match_status: "completed",
-                    status_detail: shortStatus,
-                    match_minute: null,
-                    winner_code: winnerCode,
-                    last_synced_at: new Date().toISOString(),
-                    data_source: "api-football",
-                  })
-                  .eq("provider_fixture_id", providerId);
-                updated++;
-              }
-            }
-          }
-        } catch {
-          // Non-critical
+        if (existing) {
+          const { error: updateError } = await supabase.from("wc2026_fixtures")
+            .update(row).eq("home_team_code", homeCode)
+            .eq("away_team_code", awayCode).eq("kickoff_utc", kickoff);
+          if (updateError) { errors++; insertErrorSamples.push(updateError.message); }
+          else updated++;
+        } else {
+          const { error: insertError } = await supabase.from("wc2026_fixtures")
+            .insert({ ...row, venue: null, city: null });
+          if (insertError) { errors++; insertErrorSamples.push(insertError.message); }
+          else updated++;
         }
-      }
+      } catch (e: any) { errors++; insertErrorSamples.push(e?.message || String(e)); }
     }
 
-    const hadCompleted = apiFixtures.some((f: any) => mapStatus(f.fixture?.status?.short) === "completed");
-    if (hadCompleted || liveProviderIds.length > 0) {
-      await recomputeStandings(supabase);
-    }
+    if (updated > 0) await recomputeStandings(supabase);
 
-    providerMeta.updated = updated;
-    providerMeta.skipped = skipped;
-    providerMeta.live_count = liveCount;
+    meta.updated = updated; meta.skipped = skipped; meta.errors = errors;
+    meta.unmappedTeams = [...new Set(unmappedTeams)];
+    meta.insertErrorSamples = insertErrorSamples.slice(0, 5);
 
-    await supabase
-      .from("sync_runs")
-      .update({
-        status: "success",
-        finished_at: new Date().toISOString(),
-        fixtures_fetched: apiFixtures.length,
-        fixtures_updated: updated,
-        error_count: errors,
-        is_live_match: liveCount > 0,
-        metadata: providerMeta,
-      })
-      .eq("id", syncRunId);
+    await supabase.from("sync_runs").update({
+      status: errors === 0 ? "success" : (updated > 0 ? "success" : "error"),
+      finished_at: new Date().toISOString(),
+      fixtures_fetched: matches.length, fixtures_updated: updated,
+      error_count: errors, metadata: meta,
+    }).eq("id", syncRunId);
 
-    return new Response(JSON.stringify({
-      message: `Live sync: ${apiFixtures.length} live fixtures, ${updated} updated, ${liveCount} currently live`,
-      live_count: liveCount,
-      updated,
-      errors,
-      skipped,
-      daily_calls: (todayApiCalls || 0) + 1,
-      provider_meta: providerMeta,
-    }), {
-      headers: { "Content-Type": "application/json", ...corsHeaders },
-    });
+    return { status: "success", updated, errors, skipped };
   } catch (err: any) {
-    await supabase
-      .from("sync_runs")
-      .update({
-        status: "error",
-        finished_at: new Date().toISOString(),
-        last_error: err.message,
-        error_count: 1,
-      })
-      .eq("id", syncRunId);
-
-    return new Response(JSON.stringify({ error: err.message }), {
-      status: 500,
-      headers: { "Content-Type": "application/json", ...corsHeaders },
-    });
+    await supabase.from("sync_runs").update({
+      status: "error", finished_at: new Date().toISOString(),
+      last_error: `Live sync error: ${err.message}`, error_count: 1, metadata: meta,
+    }).eq("id", syncRunId);
+    return { status: "error", error: err.message };
   }
-});
+}
 
 async function recomputeStandings(supabase: any) {
-  const { data: fixtures } = await supabase
-    .from("wc2026_fixtures")
+  const { data: fixtures } = await supabase.from("wc2026_fixtures")
     .select("home_team_code, away_team_code, home_score, away_score, group_name, match_status")
-    .eq("stage", "group")
-    .in("match_status", ["completed", "live"]);
+    .eq("stage", "group").in("match_status", ["completed", "live"]);
 
   if (!fixtures || fixtures.length === 0) return;
 
-  const standingsMap: Record<string, Record<string, {
-    played: number; won: number; drawn: number; lost: number;
-    goalsFor: number; goalsAgainst: number; points: number;
-  }>> = {};
+  const standingsMap: Record<string, Record<string, { played: number; won: number; drawn: number; lost: number; goalsFor: number; goalsAgainst: number; points: number }>> = {};
 
   for (const f of fixtures) {
-    if (f.home_score === null || f.away_score === null) continue;
-    if (!f.group_name) continue;
-    const group = f.group_name;
-    if (!standingsMap[group]) standingsMap[group] = {};
-    const home = f.home_team_code;
-    const away = f.away_team_code;
-    if (!standingsMap[group][home]) standingsMap[group][home] = { played: 0, won: 0, drawn: 0, lost: 0, goalsFor: 0, goalsAgainst: 0, points: 0 };
-    if (!standingsMap[group][away]) standingsMap[group][away] = { played: 0, won: 0, drawn: 0, lost: 0, goalsFor: 0, goalsAgainst: 0, points: 0 };
-    const h = standingsMap[group][home];
-    const a = standingsMap[group][away];
+    if (f.home_score === null || f.away_score === null || !f.group_name) continue;
+    const g = f.group_name;
+    if (!standingsMap[g]) standingsMap[g] = {};
+    const home = f.home_team_code, away = f.away_team_code;
+    if (!standingsMap[g][home]) standingsMap[g][home] = { played: 0, won: 0, drawn: 0, lost: 0, goalsFor: 0, goalsAgainst: 0, points: 0 };
+    if (!standingsMap[g][away]) standingsMap[g][away] = { played: 0, won: 0, drawn: 0, lost: 0, goalsFor: 0, goalsAgainst: 0, points: 0 };
+    const h = standingsMap[g][home], a = standingsMap[g][away];
     h.played++; a.played++;
     h.goalsFor += f.home_score; h.goalsAgainst += f.away_score;
     a.goalsFor += f.away_score; a.goalsAgainst += f.home_score;
     if (f.home_score > f.away_score) { h.won++; h.points += 3; a.lost++; }
-    else if (f.home_score === f.away_score) { h.drawn++; h.points += 1; a.drawn++; a.points += 1; }
+    else if (f.home_score === f.away_score) { h.drawn++; h.points++; a.drawn++; a.points++; }
     else { a.won++; a.points += 3; h.lost++; }
   }
 
@@ -397,25 +281,18 @@ async function recomputeStandings(supabase: any) {
   for (const [group, teams] of Object.entries(standingsMap)) {
     const sorted = Object.entries(teams).sort(([, a], [, b]) => {
       if (b.points !== a.points) return b.points - a.points;
-      const gdA = a.goalsFor - a.goalsAgainst, gdB = b.goalsFor - b.goalsAgainst;
-      if (gdB !== gdA) return gdB - gdA;
+      const gdDiff = (b.goalsFor - b.goalsAgainst) - (a.goalsFor - a.goalsAgainst);
+      if (gdDiff !== 0) return gdDiff;
       return b.goalsFor - a.goalsFor;
     });
     for (let i = 0; i < sorted.length; i++) {
       const [code, s] = sorted[i];
       await supabase.from("wc2026_standings").insert({
-        group_name: group,
-        team_code: code,
-        played: s.played,
-        won: s.won,
-        drawn: s.drawn,
-        lost: s.lost,
-        goals_for: s.goalsFor,
-        goals_against: s.goalsAgainst,
+        group_name: group, team_code: code, played: s.played,
+        won: s.won, drawn: s.drawn, lost: s.lost,
+        goals_for: s.goalsFor, goals_against: s.goalsAgainst,
         goal_difference: s.goalsFor - s.goalsAgainst,
-        points: s.points,
-        position: i + 1,
-        computed_at: new Date().toISOString(),
+        points: s.points, position: i + 1, computed_at: new Date().toISOString(),
       });
     }
   }
