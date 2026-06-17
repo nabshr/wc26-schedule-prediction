@@ -107,11 +107,14 @@ export function getPredictedGroupPositions(
     const bySecond = [...groupData].sort((a, b) => b.p2nd - a.p2nd);
     const byThird = [...groupData].sort((a, b) => b.p3rd - a.p3rd);
 
+    const first = sorted[0].team.code;
+    const second = bySecond[0].team.code !== first
+      ? bySecond[0].team.code
+      : bySecond[1].team.code;
+
     result[g] = {
-      first: sorted[0].team.code,
-      second: bySecond[0].team.code !== sorted[0].team.code
-        ? bySecond[0].team.code
-        : bySecond[1].team.code,
+      first,
+      second,
       thirds: byThird
         .filter(d => d.team.code !== first && d.team.code !== second)
         .slice(0, 1)
