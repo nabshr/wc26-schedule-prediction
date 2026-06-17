@@ -291,7 +291,7 @@ export default function Bracket() {
               </div>
             </div>
 
-            <div className="flex flex-col items-center min-w-[160px]" style={{ marginTop: 210 }}>
+            <div className="flex flex-col items-center min-w-[160px]" style={{ marginTop: 430 }}>
               <h4 className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2 text-center">
                 Third Place
               </h4>
