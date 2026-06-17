@@ -29,7 +29,7 @@ export interface BracketMatch {
   away: BracketTeamSlot;
   winner: BracketTeamSlot | null;
   isActual: boolean;     // winner is from real result
-  stage: 'r32' | 'r16' | 'qf' | 'sf' | 'final';
+  stage: 'r32' | 'r16' | 'qf' | 'sf' | 'third' | 'final';
 }
 
 export interface ResolvedBracket {
@@ -37,6 +37,7 @@ export interface ResolvedBracket {
   r16: BracketMatch[];   // 8 matches
   qf:  BracketMatch[];   // 4 matches
   sf:  BracketMatch[];   // 2 matches
+  thirdPlace: BracketMatch;
   final: BracketMatch;
 }
 
@@ -266,12 +267,55 @@ export function buildOfficialBracket(
     return match;
   });
 
-  // ── Final ─────────────────────────────────────────────────────────────
-  const sf1 = matchMap.get(101)?.winner;
-  const sf2 = matchMap.get(102)?.winner;
+  // ── Third place + Final ───────────────────────────────────────────────
+  const sf101 = matchMap.get(101);
+  const sf102 = matchMap.get(102);
 
-  const finalHome: BracketTeamSlot = sf1 || { code: 'TBD', label: 'W SF1', isActual: false };
-  const finalAway: BracketTeamSlot = sf2 || { code: 'TBD', label: 'W SF2', isActual: false };
+  const sf1Winner = sf101?.winner;
+  const sf2Winner = sf102?.winner;
+
+  const sf1Loser =
+    sf101 && sf101.home.code !== 'TBD' && sf101.away.code !== 'TBD' && sf1Winner
+      ? (sf1Winner.code === sf101.home.code ? sf101.away : sf101.home)
+      : null;
+
+  const sf2Loser =
+    sf102 && sf102.home.code !== 'TBD' && sf102.away.code !== 'TBD' && sf2Winner
+      ? (sf2Winner.code === sf102.home.code ? sf102.away : sf102.home)
+      : null;
+
+  const thirdHome: BracketTeamSlot =
+    sf1Loser || { code: 'TBD', label: 'L SF1', isActual: false };
+  const thirdAway: BracketTeamSlot =
+    sf2Loser || { code: 'TBD', label: 'L SF2', isActual: false };
+
+  const realThirdWinner = actualKnockoutResults?.['Third-103'];
+  let thirdWinner: BracketTeamSlot | null = null;
+  let thirdIsActual = false;
+
+  if (realThirdWinner) {
+    thirdWinner = { code: realThirdWinner, label: realThirdWinner, isActual: true };
+    thirdIsActual = true;
+  } else if (thirdHome.code !== 'TBD' && thirdAway.code !== 'TBD') {
+    const hp = sim.knockout.sfProb[thirdHome.code] || 0;
+    const ap = sim.knockout.sfProb[thirdAway.code] || 0;
+    const wCode = hp >= ap ? thirdHome.code : thirdAway.code;
+    thirdWinner = { code: wCode, label: wCode, isActual: false };
+  }
+
+  const thirdPlace: BracketMatch = {
+    matchNum: 103,
+    home: thirdHome,
+    away: thirdAway,
+    winner: thirdWinner,
+    isActual: thirdIsActual,
+    stage: 'third',
+  };
+
+  const finalHome: BracketTeamSlot =
+    sf1Winner || { code: 'TBD', label: 'W SF1', isActual: false };
+  const finalAway: BracketTeamSlot =
+    sf2Winner || { code: 'TBD', label: 'W SF2', isActual: false };
 
   const realFinalWinner = actualKnockoutResults?.['Final-104'];
   let finalWinner: BracketTeamSlot | null = null;
@@ -288,9 +332,13 @@ export function buildOfficialBracket(
   }
 
   const final: BracketMatch = {
-    matchNum: 104, home: finalHome, away: finalAway,
-    winner: finalWinner, isActual: finalIsActual, stage: 'final',
+    matchNum: 104,
+    home: finalHome,
+    away: finalAway,
+    winner: finalWinner,
+    isActual: finalIsActual,
+    stage: 'final',
   };
 
-  return { r32, r16, qf, sf, final };
+  return { r32, r16, qf, sf, thirdPlace, final };
 }

@@ -61,13 +61,14 @@ function deriveActualKnockoutResults(
     byStage[f.stage].push(f);
   }
 
-  const STAGE_KEY: Record<string, string> = { r32: 'R32', r16: 'R16', qf: 'QF', sf: 'SF', final: 'Final' };
+  const STAGE_KEY: Record<string, string> = { r32: 'R32', r16: 'R16', qf: 'QF', sf: 'SF', third: 'Third', final: 'Final' };
   // Match numbers for each stage (in official order)
   const STAGE_MATCH_NUMS: Record<string, number[]> = {
     r32: [73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88],
     r16: [89,90,91,92,93,94,95,96],
     qf:  [97,98,99,100],
     sf:  [101,102],
+    third: [103],
     final: [104],
   };
 
@@ -186,6 +187,9 @@ export default function Bracket() {
     [sim, actualGroupPositions, actualKnockoutResults]
   );
 
+  const thirdPlace = bracket.thirdPlace;
+
+
   const hasActualResults = Object.keys(actualKnockoutResults).length > 0;
 
   // Champion probability table from full simulation
@@ -285,6 +289,13 @@ export default function Bracket() {
                   <MatchCard match={bracket.sf[1]} size="md" showMatchNum={true} />
                 </div>
               </div>
+            </div>
+
+            <div className="flex flex-col items-center min-w-[160px]" style={{ marginTop: 210 }}>
+              <h4 className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2 text-center">
+                Third Place
+              </h4>
+              <MatchCard match={thirdPlace} size="md" showMatchNum={true} />
             </div>
 
             {/* Final + Champion */}
