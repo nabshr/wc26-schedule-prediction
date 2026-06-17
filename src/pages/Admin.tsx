@@ -25,7 +25,6 @@ import { supabase } from '../lib/supabase';
 import { useWC2026Fixtures } from '../lib/useWC2026Fixtures';
 import { WC2026_TEAMS, GROUP_NAMES } from '../data/worldCup2026';
 import { simulateGroupStage } from '../lib/prediction';
-import { DEFAULT_SIMULATION_RUNS, SIMULATION_SEED } from '../lib/simulationConfig';
 
 interface DbStats {
   tournaments: number;
@@ -219,11 +218,11 @@ export default function Admin() {
 
   function handleRunSimulation() {
     setSimRunning(true);
-    addLog({ action: 'Run Simulation', status: 'info', message: 'Starting 50K Monte Carlo simulation...' });
+    addLog({ action: 'Run Simulation', status: 'info', message: 'Starting 30K Monte Carlo simulation...' });
 
     setTimeout(() => {
       try {
-        const result = simulateGroupStage(DEFAULT_SIMULATION_RUNS, SIMULATION_SEED);
+        const result = simulateGroupStage(30000, 2026);
         addLog({
           action: 'Run Simulation',
           status: 'success',
@@ -556,7 +555,7 @@ export default function Admin() {
             </div>
             <div>
               <h3 className="font-semibold text-slate-900 dark:text-white">Run Simulation</h3>
-              <p className="text-xs text-slate-500">50K Monte Carlo</p>
+              <p className="text-xs text-slate-500">30K Monte Carlo</p>
             </div>
           </div>
           <button className="btn-secondary w-full" onClick={handleRunSimulation} disabled={simRunning}>
