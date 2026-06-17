@@ -369,40 +369,88 @@ export function simulateGroupStage(
     }
 
     // ── Seed R32 using consistent third-place slot assignment ───────────
-    const thirdTeamsByGroup: Record<string, WC2026Team> = {};
-    for (let i = 0; i < GROUP_NAMES.length; i++) {
-      thirdTeamsByGroup[GROUP_NAMES[i]] = groupThirds[i];
+    // Build predicted finishing order for each group from simulation output
+  const predictedOrderByGroup: Record<string, WC2026Team[]> = {};
+
+  for (let i = 0; i < GROUP_NAMES.length; i++) {
+    const group = GROUP_NAMES[i];
+    const table = simGroups[group] || [];
+
+    const used = new Set<string>();
+    const ordered: WC2026Team[] = [];
+
+    const pick = (key: 'p1st' | 'p2nd' | 'p3rd' | 'p4th') => {
+      const row = [...table]
+        .filter(r => !used.has(r.team.code))
+        .sort((a, b) => (b[key] ?? 0) - (a[key] ?? 0))[0];
+
+      if (row) {
+        used.add(row.team.code);
+        ordered.push(row.team);
+      }
+    };
+
+    pick('p1st');
+    pick('p2nd');
+    pick('p3rd');
+    pick('p4th');
+
+    predictedOrderByGroup[group] = ordered;
+  }
+
+  const predictedThirds = GROUP_NAMES
+    .map(group => {
+      const team = predictedOrderByGroup[group]?.[2];
+      return team ? { group, team } : null;
+    })
+    .filter(Boolean) as { group: string; team: WC2026Team }[];
+
+  predictedThirds.sort((a, b) => (b.team.elo ?? 0) - (a.team.elo ?? 0));
+
+  const advancingThirdByGroup: Record<string, string> = Object.fromEntries(
+    predictedThirds.slice(0, 8).map(x => [x.group, x.team.code])
+  );
+
+  const thirdSlotAssignment = assignThirdPlaceSlots(advancingThirdByGroup);
+
+  function slotTeam(pos: string): WC2026Team {
+    if (pos.startsWith('1')) {
+      const group = pos.slice(1);
+      return predictedOrderByGroup[group]?.[0];
     }
 
-    const thirdSlotAssignment = resolveThirdPlaceSlots(thirdTeamsByGroup);
+    if (pos.startsWith('2')) {
+      const group = pos.slice(1);
+      return predictedOrderByGroup[group]?.[1];
+    }
 
-    function slotTeam(pos: string): WC2026Team {
-      if (pos.startsWith('1')) {
-        const gIdx = GROUP_NAMES.indexOf(pos.slice(1));
-        return groupWinners[gIdx];
-      }
-
-      if (pos.startsWith('2')) {
-        const gIdx = GROUP_NAMES.indexOf(pos.slice(1));
-        return groupRunnerUps[gIdx];
-      }
-
+    if (pos.startsWith('P')) {
       const code = thirdSlotAssignment[pos];
-      return getTeamByCode(code) || groupThirds[0];
+      const team = code ? getTeamByCode(code) : null;
+      if (team) return team;
     }
 
-    const r32Participants: [WC2026Team, WC2026Team][] = R32_MATCHUPS.map(([a, b]) => [
-      slotTeam(a), slotTeam(b),
-    ]);
+    const fallback =
+      predictedOrderByGroup[GROUP_NAMES[0]]?.[0] ||
+      predictedOrderByGroup[GROUP_NAMES[1]]?.[0];
 
-    // ── R32 ────────────────────────────────────────────────────────────
-    const r32Winners: WC2026Team[] = [];
-    for (let i = 0; i < 16; i++) {
-      const w = simulateKnockout(r32Participants[i][0], r32Participants[i][1], rng);
-      r32Winners.push(w);
-      r32Count[w.code] = (r32Count[w.code] || 0) + 1;
-      r32SlotWins[i][w.code] = (r32SlotWins[i][w.code] || 0) + 1;
+    if (!fallback) {
+      throw new Error(`Unable to resolve bracket slot: ${pos}`);
     }
+
+    return fallback;
+  }
+
+  const projectedR32 = R32_MATCHUPS.map(([a, b]) => {
+    const home = slotTeam(a);
+    const away = slotTeam(b);
+    const winner = pickKnockoutWinner(home, away, rng);
+    return {
+      home: home.code,
+      away: away.code,
+      winner: winner.code,
+    };
+  });
 
     // ── R16 ────────────────────────────────────────────────────────────
     const r16Winners: WC2026Team[] = [];
