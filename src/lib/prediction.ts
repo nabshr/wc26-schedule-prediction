@@ -504,13 +504,13 @@ export function simulateGroupStage(
     winner: topCode(sfSlotWins[i]),
   }));
 
+  const projectedChampion = topCode(champCount);
+
   const projectedFinal = {
     slotA: topCode(sfSlotWins[0]),
     slotB: topCode(sfSlotWins[1]),
     winner: projectedChampion,
   };
-
-  const projectedChampion = topCode(champCount);
 
   const knockout: KnockoutSimResult = {
     championProb: Object.fromEntries(
