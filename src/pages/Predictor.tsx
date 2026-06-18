@@ -160,7 +160,9 @@ function ScorelineMatrix({ prediction }: { prediction: MatchPrediction }) {
 }
 
 function ScorelineCards({ scorelines }: { scorelines: ScorelineProb[] }) {
-  const top12 = scorelines.slice(0, 12);
+  const top12 = [...scorelines]
+    .sort((a, b) => b.prob - a.prob)
+    .slice(0, 12);
 
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
@@ -171,7 +173,7 @@ function ScorelineCards({ scorelines }: { scorelines: ScorelineProb[] }) {
         >
           <div className="flex items-center justify-between mb-1">
             <span className="text-[10px] font-medium text-slate-400">#{i + 1}</span>
-            <span className="text-[10px] font-semibold text-brand-600 dark:text-brand-400">{s.prob.toFixed(1)}%</span>
+            <span className="text-[10px] font-semibold text-brand-600 dark:text-brand-400">{(s.prob * 100).toFixed(1)}%</span>
           </div>
           <p className="text-xl font-bold text-slate-800 dark:text-slate-200 text-center">
             {s.teamA} - {s.teamB}
@@ -179,7 +181,7 @@ function ScorelineCards({ scorelines }: { scorelines: ScorelineProb[] }) {
           <div className="mt-2 h-1.5 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
             <div
               className="h-full rounded-full bg-brand-500 transition-all duration-500"
-              style={{ width: `${Math.min(s.prob * 3, 100)}%` }}
+              style={{ width: `${Math.min(s.prob * 100, 100)}%` }}
             />
           </div>
         </div>
