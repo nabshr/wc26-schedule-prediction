@@ -500,14 +500,26 @@ async function tryBackupProvider(
         const providerFixtureId = `fd-${match.id}`;
 
         // Only upsert if no existing record from primary provider, or this is clearly newer
-        const { data: existing } = await supabase
+        let { data: existing } = await supabase
           .from("wc2026_fixtures")
-          .select("data_source, home_score, away_score, match_status, last_synced_at")
-          .eq("home_team_code", homeCode)
-          .eq("away_team_code", awayCode)
-          .eq("kickoff_utc", kickoff)
-          .limit(1)
-          .maybeSingle();
+          .select("id, home_score, away_score, match_status, kickoff_utc")
+          .eq("home_team_code", homeCode).eq("away_team_code", awayCode)
+          .eq("kickoff_utc", kickoff).limit(1).maybeSingle();
+
+        // Fallback: team-pair ignoring exact time (handles UTC date-boundary mismatches)
+        if (!existing) {
+          const kickoffDate = kickoff.slice(0, 10);
+          const dayBefore = new Date(new Date(kickoff).getTime() - 86400000).toISOString().slice(0, 10);
+          const dayAfter  = new Date(new Date(kickoff).getTime() + 86400000).toISOString().slice(0, 10);
+          const { data: fallback } = await supabase
+            .from("wc2026_fixtures")
+            .select("id, home_score, away_score, match_status, kickoff_utc")
+            .eq("home_team_code", homeCode).eq("away_team_code", awayCode)
+            .gte("kickoff_utc", `${dayBefore}T00:00:00Z`)
+            .lte("kickoff_utc", `${dayAfter}T23:59:59Z`)
+            .limit(1).maybeSingle();
+          existing = fallback;
+        }
 
         // Priority: primary > backup. Only write if no existing primary record
         if (existing && existing.data_source === "api-football") {
@@ -516,9 +528,11 @@ async function tryBackupProvider(
         }
 
         // Don't blank out existing scores
-        if (existing && homeScore === null && existing.home_score !== null) {
-          skipped++;
-          continue;
+        if (existing) {
+          // Never downgrade a completed match back to live/scheduled
+          if (existing.match_status === 'completed' && matchStatus !== 'completed') { skipped++; continue; }
+          // Never blank out scores
+          if (homeScore === null && existing.home_score !== null) { skipped++; continue; }
         }
 
         const row: Record<string, any> = {
@@ -543,12 +557,12 @@ async function tryBackupProvider(
 
         // Use provider_fixture_id for upsert if no conflict; otherwise match on teams+kickoff
         if (existing) {
-          const { error: updateError } = await supabase
-            .from("wc2026_fixtures")
-            .update(row)
-            .eq("home_team_code", homeCode)
-            .eq("away_team_code", awayCode)
-            .eq("kickoff_utc", kickoff);
+          const { error: updateError } = existing?.id
+            ? await supabase.from("wc2026_fixtures").update(row).eq("id", existing.id)
+            : await supabase.from("wc2026_fixtures").update(row)
+                .eq("home_team_code", homeCode).eq("away_team_code", awayCode)
+                .eq("kickoff_utc", kickoff);
+
           if (updateError) {
             errors++;
             insertErrorSamples.push(updateError.message);
