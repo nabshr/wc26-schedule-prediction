@@ -89,11 +89,12 @@ export function useWC2026Fixtures() {
   const [providerConfig, setProviderConfig] = useState<ProviderConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [dailyCallsCount, setDailyCallsCount] = useState<number>(0);
 
   const fetchSyncedData = useCallback(async () => {
     setLoading(true);
     try {
-      const [fixturesRes, runsRes, configRes] = await Promise.all([
+      const [fixturesRes, runsRes, configRes, runsCountRes] = await Promise.all([
         supabase.from('wc2026_fixtures').select('*').order('kickoff_utc', { ascending: true }),
         supabase
           .from('sync_runs')
@@ -101,13 +102,19 @@ export function useWC2026Fixtures() {
           .gte('started_at', new Date(new Date().setUTCHours(0, 0, 0, 0)).toISOString())
           .in('status', ['success', 'running'])
           .order('started_at', { ascending: false })
-          .limit(3000),
+          .limit(50),
         supabase.from('provider_config').select('*').eq('is_active', true).limit(1),
+        supabase
+          .from('sync_runs')
+          .select('*', { count: 'exact', head: true })
+          .gte('started_at', new Date(new Date().setUTCHours(0, 0, 0, 0)).toISOString())
+          .in('status', ['success', 'running']),
       ]);
 
       if (fixturesRes.data) setSyncedFixtures(fixturesRes.data as SyncedFixture[]);
       if (runsRes.data) setSyncRuns(runsRes.data as SyncRun[]);
       if (configRes.data && configRes.data.length > 0) setProviderConfig(configRes.data[0] as ProviderConfig);
+      if (runsCountRes.count !== null) setDailyCallsCount(runsCountRes.count);
     } catch (err) {
       console.error('Failed to fetch synced data:', err);
     } finally {
@@ -248,6 +255,7 @@ export function useWC2026Fixtures() {
   return {
     fixtures: allFixtures,
     syncRuns,
+    dailyCallsCount,
     providerConfig,
     lastFixtureSync,
     lastLiveSync,

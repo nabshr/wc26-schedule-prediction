@@ -73,6 +73,7 @@ export default function Admin() {
     triggerSync,
     refetch: refetchSyncData,
     syncRuns,
+    dailyCallsCount,
     fixtures,
   } = useWC2026Fixtures();
 
@@ -384,7 +385,7 @@ export default function Admin() {
   //     return started >= todayStart;
   // });
 
-  const calls = todayRuns.length;
+  const calls = dailyCallsCount;
   const budget = 2000;
 
   let mode: 'live' | 'window' | 'idle';
