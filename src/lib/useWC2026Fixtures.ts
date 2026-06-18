@@ -97,10 +97,11 @@ export function useWC2026Fixtures() {
         supabase.from('wc2026_fixtures').select('*').order('kickoff_utc', { ascending: true }),
         supabase
           .from('sync_runs')
-          .select('*')
+          .select('id, sync_type, status, started_at, finished_at, fixtures_updated, error_count, last_error, is_live_match, metadata')
           .gte('started_at', new Date(new Date().setUTCHours(0, 0, 0, 0)).toISOString())
           .in('status', ['success', 'running'])
-          .order('started_at', { ascending: false }),
+          .order('started_at', { ascending: false })
+          .limit(3000),
         supabase.from('provider_config').select('*').eq('is_active', true).limit(1),
       ]);
 
