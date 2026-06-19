@@ -55,6 +55,27 @@ Deno.serve(async (req: Request) => {
 
   const now = Date.now();
 
+  const nowIso = new Date(now).toISOString();
+  const next60Iso = new Date(now + PRE_MATCH_WINDOW_MS).toISOString();
+
+  const { data: liveOrUpcoming } = await supabase
+    .from("wc2026_fixtures")
+    .select("kickoff_utc, match_status")
+    .or(`match_status.eq.live,and(match_status.eq.scheduled,kickoff_utc.gte.${nowIso},kickoff_utc.lte.${next60Iso})`)
+    .limit(1);
+
+  const inMatchWindow = (liveOrUpcoming || []).length > 0;
+
+  if (!inMatchWindow) {
+    return new Response(JSON.stringify({
+      message: "No live match and no match starting within 60 mins. Skipping.",
+      status: "skipped",
+      in_match_window: false,
+    }), {
+      headers: { "Content-Type": "application/json", ...corsHeaders },
+    });
+  }
+
   const { data: candidates } = await supabase
     .from("wc2026_fixtures")
     .select("kickoff_utc, match_status")
