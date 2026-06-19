@@ -30,9 +30,9 @@ const TEAM_MAP: Record<string, string> = {
   "Croatia": "CRO", "Ghana": "GHA", "Panama": "PAN",
 };
 
-const MATCH_DURATION_MS = 3 * 60 * 60 * 1000;
+// const MATCH_DURATION_MS = 3 * 60 * 60 * 1000;
 const PRE_MATCH_WINDOW_MS = 60 * 60 * 1000;
-const NON_MATCH_INTERVAL_MS = 30 * 60 * 1000;
+// const NON_MATCH_INTERVAL_MS = 30 * 60 * 1000;
 // const IN_WINDOW_DOUBLE_FETCH_GAP_MS = 30 * 1000;
 
 function resolveTeamCode(name: string): string | null {
@@ -76,38 +76,38 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  const { data: candidates } = await supabase
-    .from("wc2026_fixtures")
-    .select("kickoff_utc, match_status")
-    .neq("match_status", "completed")
-    .gte("kickoff_utc", new Date(now - MATCH_DURATION_MS).toISOString())
-    .lte("kickoff_utc", new Date(now + PRE_MATCH_WINDOW_MS).toISOString());
+  // const { data: candidates } = await supabase
+  //   .from("wc2026_fixtures")
+  //   .select("kickoff_utc, match_status")
+  //   .neq("match_status", "completed")
+  //   .gte("kickoff_utc", new Date(now - MATCH_DURATION_MS).toISOString())
+  //   .lte("kickoff_utc", new Date(now + PRE_MATCH_WINDOW_MS).toISOString());
 
-  const inMatchWindow = (candidates || []).some((f: any) => {
-    const kickoff = new Date(f.kickoff_utc).getTime();
-    return now >= kickoff - PRE_MATCH_WINDOW_MS && now <= kickoff + MATCH_DURATION_MS;
-  });
+  // const inMatchWindow = (candidates || []).some((f: any) => {
+  //   const kickoff = new Date(f.kickoff_utc).getTime();
+  //   return now >= kickoff - PRE_MATCH_WINDOW_MS && now <= kickoff + MATCH_DURATION_MS;
+  // });
 
-  if (!inMatchWindow) {
-    // Check if any upcoming match starts within the next 60 minutes
-    const { data: upcoming } = await supabase
-      .from("wc2026_fixtures")
-      .select("kickoff_utc")
-      .eq("match_status", "scheduled")
-      .gte("kickoff_utc", new Date(now).toISOString())
-      .lte("kickoff_utc", new Date(now + PRE_MATCH_WINDOW_MS).toISOString())
-      .limit(1)
-      .maybeSingle();
+  // if (!inMatchWindow) {
+  //   // Check if any upcoming match starts within the next 60 minutes
+  //   const { data: upcoming } = await supabase
+  //     .from("wc2026_fixtures")
+  //     .select("kickoff_utc")
+  //     .eq("match_status", "scheduled")
+  //     .gte("kickoff_utc", new Date(now).toISOString())
+  //     .lte("kickoff_utc", new Date(now + PRE_MATCH_WINDOW_MS).toISOString())
+  //     .limit(1)
+  //     .maybeSingle();
 
-    if (!upcoming) {
-      // No match within 60 mins and none live — skip entirely
-      return new Response(JSON.stringify({
-        message: "No live match and no match starting within 60 mins. Skipping.",
-        status: "skipped",
-        in_match_window: false,
-      }), { headers: { "Content-Type": "application/json", ...corsHeaders } });
-    }
-  }
+  //   if (!upcoming) {
+  //     // No match within 60 mins and none live — skip entirely
+  //     return new Response(JSON.stringify({
+  //       message: "No live match and no match starting within 60 mins. Skipping.",
+  //       status: "skipped",
+  //       in_match_window: false,
+  //     }), { headers: { "Content-Type": "application/json", ...corsHeaders } });
+  //   }
+  // }
 
   const { data: runningSyncs } = await supabase
     .from("sync_runs").select("id").eq("sync_type", "live").eq("status", "running")
