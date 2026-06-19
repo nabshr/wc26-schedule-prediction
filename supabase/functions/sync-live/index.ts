@@ -68,26 +68,29 @@ Deno.serve(async (req: Request) => {
   });
 
   if (!inMatchWindow) {
-    const { data: lastRun } = await supabase
-      .from("sync_runs")
-      .select("started_at")
-      .eq("sync_type", "live")
-      .in("status", ["success", "error"])
-      .order("started_at", { ascending: false })
+    // Check if any upcoming match starts within the next 60 minutes
+    const { data: upcoming } = await supabase
+      .from("wc2026_fixtures")
+      .select("kickoff_utc")
+      .eq("match_status", "scheduled")
+      .gte("kickoff_utc", new Date(now).toISOString())
+      .lte("kickoff_utc", new Date(now + PRE_MATCH_WINDOW_MS).toISOString())
       .limit(1)
       .maybeSingle();
 
-    if (lastRun && now - new Date(lastRun.started_at).getTime() < NON_MATCH_INTERVAL_MS) {
+    if (!upcoming) {
+      // No match within 60 mins and none live — skip entirely
       return new Response(JSON.stringify({
-        message: "Outside match window; throttled to 30-minute interval.",
-        status: "skipped", in_match_window: false,
+        message: "No live match and no match starting within 60 mins. Skipping.",
+        status: "skipped",
+        in_match_window: false,
       }), { headers: { "Content-Type": "application/json", ...corsHeaders } });
     }
   }
 
   const { data: runningSyncs } = await supabase
     .from("sync_runs").select("id").eq("sync_type", "live").eq("status", "running")
-    .gt("started_at", new Date(now - 2 * 60 * 1000).toISOString()).limit(1);
+    .gt("started_at", new Date(now - 5 * 60 * 1000).toISOString()).limit(1);
 
   if (runningSyncs && runningSyncs.length > 0) {
     return new Response(JSON.stringify({ message: "Live sync already running.", status: "skipped" }),
