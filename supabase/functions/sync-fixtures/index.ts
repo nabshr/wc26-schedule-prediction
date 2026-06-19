@@ -652,6 +652,13 @@ async function triggerLiveSyncIfNeeded(supabase: any) {
   const nowIso = new Date(now).toISOString();
   const next60Iso = new Date(now + 60 * 60 * 1000).toISOString();
 
+  console.log(JSON.stringify({
+    step: "triggerLiveSyncIfNeeded:start",
+    nowIso,
+    next60Iso,
+  }));
+
+
   const { data: liveOrUpcoming } = await supabase
     .from("wc2026_fixtures")
     .select("id")
@@ -659,6 +666,10 @@ async function triggerLiveSyncIfNeeded(supabase: any) {
     .limit(1);
 
   if (!liveOrUpcoming || liveOrUpcoming.length === 0) return;
+
+  console.log(JSON.stringify({
+    step: "triggerLiveSyncIfNeeded:invoking-sync-live",
+  }));
 
   await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/sync-live`, {
     method: "POST",
