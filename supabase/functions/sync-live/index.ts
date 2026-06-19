@@ -33,7 +33,7 @@ const TEAM_MAP: Record<string, string> = {
 const MATCH_DURATION_MS = 3 * 60 * 60 * 1000;
 const PRE_MATCH_WINDOW_MS = 60 * 60 * 1000;
 const NON_MATCH_INTERVAL_MS = 30 * 60 * 1000;
-const IN_WINDOW_DOUBLE_FETCH_GAP_MS = 30 * 1000;
+// const IN_WINDOW_DOUBLE_FETCH_GAP_MS = 30 * 1000;
 
 function resolveTeamCode(name: string): string | null {
   return TEAM_MAP[name] || null;
@@ -100,10 +100,10 @@ Deno.serve(async (req: Request) => {
   const results: any[] = [];
   results.push(await runSync(supabase, backupKey, inMatchWindow));
 
-  if (inMatchWindow) {
-    await new Promise(r => setTimeout(r, IN_WINDOW_DOUBLE_FETCH_GAP_MS));
-    results.push(await runSync(supabase, backupKey, inMatchWindow));
-  }
+  // if (inMatchWindow) {
+  //   await new Promise(r => setTimeout(r, IN_WINDOW_DOUBLE_FETCH_GAP_MS));
+  //   results.push(await runSync(supabase, backupKey, inMatchWindow));
+  // }
 
   return new Response(JSON.stringify({ in_match_window: inMatchWindow, runs: results }),
     { headers: { "Content-Type": "application/json", ...corsHeaders } });
