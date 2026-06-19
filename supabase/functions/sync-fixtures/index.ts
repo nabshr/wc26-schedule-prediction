@@ -331,6 +331,8 @@ Deno.serve(async (req: Request) => {
       })
       .eq("id", syncRunId);
 
+    await triggerLiveSyncIfNeeded(supabase);
+
     return new Response(JSON.stringify({
       message: `Sync completed: ${apiFixtures.length} fetched, ${updated} upserted, ${errors} errors, ${skipped} skipped`,
       fixtures_fetched: apiFixtures.length,
@@ -614,6 +616,8 @@ async function tryBackupProvider(
     })
     .eq("id", syncRunId);
 
+  await triggerLiveSyncIfNeeded(supabase);
+
     return new Response(JSON.stringify({
       message: `Backup sync (football-data.org): ${matches.length} fetched, ${updated} upserted, ${errors} errors, ${skipped} skipped`,
       provider: "football-data.org",
@@ -641,6 +645,29 @@ async function tryBackupProvider(
       error: `Backup provider error: ${err.message}`,
     }), { status: 500, headers: { "Content-Type": "application/json", ...corsHeaders } });
   }
+}
+
+async function triggerLiveSyncIfNeeded(supabase: any) {
+  const now = Date.now();
+  const nowIso = new Date(now).toISOString();
+  const next60Iso = new Date(now + 60 * 60 * 1000).toISOString();
+
+  const { data: liveOrUpcoming } = await supabase
+    .from("wc2026_fixtures")
+    .select("id")
+    .or(`match_status.eq.live,and(match_status.eq.scheduled,kickoff_utc.gte.${nowIso},kickoff_utc.lte.${next60Iso})`)
+    .limit(1);
+
+  if (!liveOrUpcoming || liveOrUpcoming.length === 0) return;
+
+  await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/sync-live`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+    },
+    body: JSON.stringify({ source: "sync-fixture" }),
+  });
 }
 
 async function recomputeStandings(supabase: any) {
