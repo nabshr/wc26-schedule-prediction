@@ -665,6 +665,11 @@ async function triggerLiveSyncIfNeeded(supabase: any) {
     .or(`match_status.eq.live,and(match_status.eq.scheduled,kickoff_utc.gte.${nowIso},kickoff_utc.lte.${next60Iso})`)
     .limit(1);
 
+  console.log(JSON.stringify({
+    step: "triggerLiveSyncIfNeeded:result",
+    found: (liveOrUpcoming || []).length,
+  }));
+
   if (!liveOrUpcoming || liveOrUpcoming.length === 0) return;
 
   console.log(JSON.stringify({
