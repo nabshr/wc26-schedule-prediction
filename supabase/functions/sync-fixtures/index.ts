@@ -648,8 +648,8 @@ async function tryBackupProvider(
 }
 
 async function triggerLiveSyncIfNeeded(supabase: any) {
-  const now = Date.now();
   const nowIso = new Date(now).toISOString();
+  const gracePastIso = new Date(now - 10 * 60 * 1000).toISOString();
   const next60Iso = new Date(now + 60 * 60 * 1000).toISOString();
 
   console.log(JSON.stringify({
@@ -662,7 +662,7 @@ async function triggerLiveSyncIfNeeded(supabase: any) {
   const { data: liveOrUpcoming } = await supabase
     .from("wc2026_fixtures")
     .select("id")
-    .or(`match_status.eq.live,and(match_status.eq.scheduled,kickoff_utc.gte.${nowIso},kickoff_utc.lte.${next60Iso})`)
+    .or(`match_status.eq.live,and(match_status.eq.scheduled,kickoff_utc.gte.${gracePastIso},kickoff_utc.lte.${next60Iso})`)
     .limit(1);
 
   console.log(JSON.stringify({
