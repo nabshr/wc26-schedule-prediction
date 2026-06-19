@@ -265,6 +265,20 @@ async function runSync(supabase: any, backupKey: string, inMatchWindow: boolean)
       error_count: errors, metadata: meta,
     }).eq("id", syncRunId);
 
+    const now = Date.now();
+    const nowIso = new Date(now).toISOString();
+    const next60Iso = new Date(now + PRE_MATCH_WINDOW_MS).toISOString();
+
+    const { data: liveOrUpcoming } = await supabase
+      .from("wc2026_fixtures")
+      .select("id")
+      .or(`match_status.eq.live,and(match_status.eq.scheduled,kickoff_utc.gte.${nowIso},kickoff_utc.lte.${next60Iso})`)
+      .limit(1);
+
+    if (!liveOrUpcoming || liveOrUpcoming.length === 0) {
+      await supabase.rpc("unschedule_sync_live");
+    }
+
     return { status: "success", updated, errors, skipped };
   } catch (err: any) {
     await supabase.from("sync_runs").update({

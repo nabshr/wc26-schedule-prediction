@@ -673,17 +673,17 @@ async function triggerLiveSyncIfNeeded(supabase: any) {
   if (!liveOrUpcoming || liveOrUpcoming.length === 0) return;
 
   console.log(JSON.stringify({
-    step: "triggerLiveSyncIfNeeded:invoking-sync-live",
+    step: "triggerLiveSyncIfNeeded:scheduling-sync-live",
   }));
 
-  await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/sync-live`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-    },
-    body: JSON.stringify({ source: "sync-fixture" }),
-  });
+  const { error } = await supabase.rpc("schedule_sync_live");
+
+  if (error) {
+    console.error(JSON.stringify({
+      step: "triggerLiveSyncIfNeeded:schedule-sync-live:error",
+      error: error.message,
+    }));
+  }
 }
 
 async function recomputeStandings(supabase: any) {
