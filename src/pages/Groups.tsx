@@ -3,6 +3,7 @@ import { useState, useMemo } from 'react';
 import SectionHeader from '../components/SectionHeader';
 import RoundedCard from '../components/RoundedCard';
 import TeamBadge from '../components/TeamBadge';
+import CountryFlag from '../components/CountryFlag';
 import { GROUP_NAMES, getTeamsByGroup, getTeamByCode } from '../data/worldCup2026';
 import { simulateGroupStage, type GroupProbabilities } from '../lib/prediction';
 import { useWC2026Fixtures, type MergedFixture } from '../lib/useWC2026Fixtures';
@@ -194,7 +195,10 @@ function FixturesTab({ fixtures }: { fixtures: MergedFixture[] }) {
             <div key={f.id} className={`flex items-center gap-3 py-2 border-b border-slate-100 dark:border-slate-800 last:border-0 ${isLive ? 'bg-red-50/50 dark:bg-red-500/5 -mx-1 px-1 rounded-lg' : ''}`}>
               <span className="text-[10px] text-slate-400 w-8 shrink-0">MD{f.matchday}</span>
               <div className="flex-1 flex items-center gap-2">
-                <span className="text-xs font-medium text-slate-700 dark:text-slate-300">{homeTeam?.code || 'TBD'}</span>
+                <span className="inline-flex items-center gap-1 text-xs font-medium text-slate-700 dark:text-slate-300">
+                  {homeTeam && <CountryFlag code={homeTeam.code} size={14} decorative />}
+                  {homeTeam?.code || 'TBD'}
+                </span>
                 {f.status === 'completed' && f.homeScore !== null && f.awayScore !== null ? (
                   <span className="text-xs font-bold text-slate-800 dark:text-slate-200">{f.homeScore} - {f.awayScore}</span>
                 ) : isLive && f.homeScore !== null && f.awayScore !== null ? (
@@ -202,7 +206,10 @@ function FixturesTab({ fixtures }: { fixtures: MergedFixture[] }) {
                 ) : (
                   <span className="text-[10px] text-slate-400">vs</span>
                 )}
-                <span className="text-xs font-medium text-slate-700 dark:text-slate-300">{awayTeam?.code || 'TBD'}</span>
+                <span className="inline-flex items-center gap-1 text-xs font-medium text-slate-700 dark:text-slate-300">
+                  {awayTeam && <CountryFlag code={awayTeam.code} size={14} decorative />}
+                  {awayTeam?.code || 'TBD'}
+                </span>
                 {isLive && <span className="badge bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-400 text-[8px]">LIVE</span>}
               </div>
               {isLive ? (
