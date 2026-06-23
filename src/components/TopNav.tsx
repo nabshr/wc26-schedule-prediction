@@ -34,7 +34,7 @@ export default function TopNav({ onMenuClick }: TopNavProps) {
           />
 
           <div className="leading-none">
-            <div className="topnav-worldcup-title text-[1.35rem] md:text-[2rem] lg:text-[2.4rem] tracking-tight text-slate-900 dark:text-white whitespace-nowrap">
+            <div className="topnav-worldcup-title mt-[13px] text-[1.35rem] md:text-[2rem] lg:text-[2.4rem] tracking-tight text-slate-900 dark:text-white whitespace-nowrap">
               FIFA WORLD CUP 2026
             </div>
             <div className="text-sm md:text-base font-semibold text-slate-500 dark:text-slate-300 mt-1">
