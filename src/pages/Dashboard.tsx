@@ -11,7 +11,7 @@ import { WC2026_TEAMS, GROUP_NAMES } from '../data/worldCup2026';
 import { simulateGroupStage } from '../lib/prediction';
 
 export default function Dashboard() {
-  const sim = useMemo(() => simulateGroupStage(30000, 2026), []);
+  const sim = useMemo(() => simulateGroupStage(50000, 2026), []);
 
   const topFavorites = Object.values(sim.groups)
     .flat()
