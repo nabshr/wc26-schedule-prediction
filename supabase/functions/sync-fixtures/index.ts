@@ -648,6 +648,7 @@ async function tryBackupProvider(
 }
 
 async function triggerLiveSyncIfNeeded(supabase: any) {
+  const now = Date.now();
   const nowIso = new Date(now).toISOString();
   const gracePastIso = new Date(now - 10 * 60 * 1000).toISOString();
   const next60Iso = new Date(now + 60 * 60 * 1000).toISOString();
