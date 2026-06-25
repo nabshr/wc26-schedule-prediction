@@ -550,7 +550,7 @@ async function tryBackupProvider(
           home_score: homeScore,
           away_score: awayScore,
           match_status: matchStatus,
-          status_detail: status,
+          status_detail: status === "IN_PLAY" ? "IN PLAY" : status,
           match_minute: null,
           winner_code: winnerCode,
           last_synced_at: new Date().toISOString(),
