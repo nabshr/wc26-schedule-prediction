@@ -466,7 +466,7 @@ async function tryBackupProvider(
         const status = match.status; // SCHEDULED, TIMED, IN_PLAY, PAUSED, FINISHED, POSTPONED, CANCELLED
         let matchStatus = "scheduled";
         if (status === "FINISHED") matchStatus = "completed";
-        else if (status === "IN_PLAY" || status === "PAUSED") matchStatus = "live";
+        else if (status === "IN_PLAY" || status === "LIVE" || status === "PAUSED") matchStatus = "live";
         else if (status === "POSTPONED" || status === "CANCELLED") matchStatus = "postponed";
 
         const homeScore = match.score?.fullTime?.home ?? null;
