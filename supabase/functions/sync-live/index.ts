@@ -188,7 +188,7 @@ async function runSync(supabase: any, backupKey: string, inMatchWindow: boolean)
         const status = match.status;
         let matchStatus = "scheduled";
         if (status === "FINISHED") matchStatus = "completed";
-        else if (status === "IN_PLAY" || status === "PAUSED") matchStatus = "live";
+        else if (status === "IN_PLAY" || status === "LIVE" || status === "PAUSED") matchStatus = "live";
         else if (status === "POSTPONED" || status === "CANCELLED") matchStatus = "postponed";
 
         const homeScore = match.score?.fullTime?.home ?? null;
@@ -228,13 +228,20 @@ async function runSync(supabase: any, backupKey: string, inMatchWindow: boolean)
         if (existing && homeScore === null && existing.home_score !== null) { skipped++; continue; }
 
         const row: Record<string, any> = {
-          provider_fixture_id: providerFixtureId, stage, group_name: groupName,
-          matchday: match.matchday || null, kickoff_utc: kickoff,
-          home_team_code: homeCode, away_team_code: awayCode,
-          home_score: homeScore, away_score: awayScore,
-          match_status: matchStatus, status_detail: status,
-          match_minute: null, winner_code: winnerCode,
-          last_synced_at: new Date().toISOString(), data_source: "football-data.org",
+          provider_fixture_id: providerFixtureId, stage, 
+          group_name: groupName,
+          matchday: match.matchday || null,
+           kickoff_utc: kickoff,
+          home_team_code: homeCode, 
+          away_team_code: awayCode,
+          home_score: homeScore, 
+          away_score: awayScore,
+          match_status: matchStatus, 
+          status_detail: status === "IN_PLAY" ? "IN PLAY" : status,
+          match_minute: null, 
+          winner_code: winnerCode,
+          last_synced_at: new Date().toISOString(), 
+          data_source: "football-data.org",
         };
 
         if (existing) {
