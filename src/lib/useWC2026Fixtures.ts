@@ -144,6 +144,8 @@ export function useWC2026Fixtures() {
     const syncedByMatchNumber = new Map<number, SyncedFixture>();
     const syncedByTeams = new Map<string, SyncedFixture>();
     const syncedByTeamPair = new Map<string, SyncedFixture>();
+    // For knockout fixtures where static home/away are 'TBD': match by date+kickoff time
+    const syncedByKickoff = new Map<string, SyncedFixture>();
 
     const pairKeyOf = (a: string, b: string) => [a, b].sort().join('-');
 
@@ -152,6 +154,13 @@ export function useWC2026Fixtures() {
       const dateKey = `${sf.home_team_code}-${sf.away_team_code}-${sf.kickoff_utc?.slice(0, 10)}`;
       syncedByTeams.set(dateKey, sf);
       syncedByTeamPair.set(pairKeyOf(sf.home_team_code, sf.away_team_code), sf);
+      // kickoff key: date + HH:MM (matches static timeUTC)
+      if (sf.kickoff_utc) {
+        const ko = new Date(sf.kickoff_utc);
+        const koDate = ko.toISOString().slice(0, 10);
+        const koTime = `${String(ko.getUTCHours()).padStart(2, '0')}:${String(ko.getUTCMinutes()).padStart(2, '0')}`;
+        syncedByKickoff.set(`${koDate}-${koTime}`, sf);
+      }
     }
 
     const consumed = new Set<string>();
@@ -169,6 +178,11 @@ export function useWC2026Fixtures() {
         // provider kickoff times.
         synced = syncedByTeamPair.get(pairKeyOf(staticF.home, staticF.away));
       }
+      if (!synced) {
+        // Last resort for knockout fixtures with home='TBD', away='TBD':
+        // match purely by kickoff date + time (static timeUTC = HH:MM UTC).
+        synced = syncedByKickoff.get(`${staticF.date}-${staticF.timeUTC}`);
+      }
 
       if (synced) {
         consumed.add(synced.id);
@@ -176,22 +190,27 @@ export function useWC2026Fixtures() {
         // football-data.org doesn't provide these; overlay live score/status.
         const syncedMerged = syncedToMerged(synced);
 
-        // If the provider's home/away order differs from our static
-        // schedule, swap scores/winner so they stay attributed to the
-        // correct team (home/away/group/venue/etc. stay as static).
-        const swapped = synced.home_team_code !== staticF.home;
+        // For knockout fixtures the static home/away are 'TBD' — use real
+        // team codes from the synced row. For group fixtures keep static
+        // home/away (provider order can differ) and swap scores if needed.
+        const isTbd = staticF.home === 'TBD' || staticF.away === 'TBD';
+        const resolvedHome = isTbd ? synced.home_team_code : staticF.home;
+        const resolvedAway = isTbd ? synced.away_team_code : staticF.away;
+
+        // Swap scores only for group fixtures where provider order may differ
+        const swapped = !isTbd && synced.home_team_code !== staticF.home;
         const homeScore = swapped ? syncedMerged.awayScore : syncedMerged.homeScore;
         const awayScore = swapped ? syncedMerged.homeScore : syncedMerged.awayScore;
-        let winnerCode = syncedMerged.winnerCode;
-        if (swapped && winnerCode === 'home') winnerCode = 'away';
-        else if (swapped && winnerCode === 'away') winnerCode = 'home';
+
+        // winner_code is stored as an actual team code (e.g. "CAN"), not 'home'/'away'
+        const winnerCode = syncedMerged.winnerCode;
 
         return {
           ...staticF,
           ...syncedMerged,
           id: staticF.id,
-          home: staticF.home,
-          away: staticF.away,
+          home: resolvedHome,
+          away: resolvedAway,
           homeScore,
           awayScore,
           winnerCode,
