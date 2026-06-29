@@ -85,11 +85,11 @@ function deriveActualKnockoutFixtures(
       const matchNum = matchNums[i];
       if (!matchNum) return;
 
-      // winner_code in Supabase is stored as the actual team code (e.g. "CAN"),
-      // not 'home'/'away'. Use it directly; skip only null/'draw'.
+      // Resolve winner to actual team code
       let winner: string | undefined;
-      if (f.status === 'completed' && f.winnerCode && f.winnerCode !== 'draw') {
-        winner = f.winnerCode;
+      if (f.status === 'completed' && f.winnerCode) {
+        if (f.winnerCode === 'home') winner = f.home;
+        else if (f.winnerCode === 'away') winner = f.away;
       }
 
       result[matchNum] = { home: f.home, away: f.away, winner };
