@@ -5,7 +5,7 @@ import RoundedCard from '../components/RoundedCard';
 import TeamBadge from '../components/TeamBadge';
 import { getTeamByCode } from '../data/worldCup2026';
 import { simulateGroupStage } from '../lib/prediction';
-import { buildOfficialBracket, type BracketMatch, type BracketTeamSlot } from '../lib/bracketSeeding';
+import { buildOfficialBracket, type BracketMatch, type BracketTeamSlot, type RealKnockoutFixture } from '../lib/bracketSeeding';
 import { useWC2026Fixtures } from '../lib/useWC2026Fixtures';
 import { useTheme } from '../context/ThemeContext';
 import logoLight from '../assets/wc26_light.png';
@@ -47,45 +47,56 @@ function deriveActualGroupPositions(
 }
 
 // ── Derive actual knockout results from fixtures ──────────────────────
-function deriveActualKnockoutResults(
+// ── Extract real knockout fixture pairings + winners from Supabase data ─
+// Returns a map keyed by official match number (73-104) with home/away team
+// codes and (if completed) the winning team code.
+// Works for ALL knockout stages: R32, R16, QF, SF, Third, Final.
+function deriveActualKnockoutFixtures(
   fixtures: ReturnType<typeof useWC2026Fixtures>['fixtures']
-): Record<string, string> {
-  const results: Record<string, string> = {};
-  const ko = fixtures.filter(f =>
-    f.status === 'completed' && f.stage !== 'group' && f.winnerCode
-  ).sort((a, b) => (a.date + a.timeUTC).localeCompare(b.date + b.timeUTC));
+): Record<number, RealKnockoutFixture> {
+  const result: Record<number, RealKnockoutFixture> = {};
 
-  const byStage: Record<string, typeof ko> = {};
-  for (const f of ko) {
-    if (!byStage[f.stage]) byStage[f.stage] = [];
-    byStage[f.stage].push(f);
-  }
-
-  const STAGE_KEY: Record<string, string> = { r32: 'R32', r16: 'R16', qf: 'QF', sf: 'SF', third: 'Third', final: 'Final' };
-  // Match numbers for each stage (in official order)
+  // Official match number ranges per stage, in chronological kickoff order
   const STAGE_MATCH_NUMS: Record<string, number[]> = {
-    r32: [73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88],
-    r16: [89,90,91,92,93,94,95,96],
-    qf:  [97,98,99,100],
-    sf:  [101,102],
+    r32:   [73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88],
+    r16:   [89,90,91,92,93,94,95,96],
+    qf:    [97,98,99,100],
+    sf:    [101,102],
     third: [103],
     final: [104],
   };
 
-  for (const [stage, matches] of Object.entries(byStage)) {
-    const roundKey = STAGE_KEY[stage];
-    if (!roundKey) continue;
-    const matchNums = STAGE_MATCH_NUMS[stage] || [];
-    matches.forEach((f, i) => {
-      const winnerCode = f.winnerCode === 'home' ? f.home
-        : f.winnerCode === 'away' ? f.away
-        : null;
-      if (!winnerCode || winnerCode === 'draw') return;
-      const mNum = matchNums[i];
-      if (mNum) results[`${roundKey}-${mNum}`] = winnerCode;
+  const koStages = ['r32', 'r16', 'qf', 'sf', 'third', 'final'] as const;
+
+  for (const stage of koStages) {
+    const matchNums = STAGE_MATCH_NUMS[stage];
+
+    // Get all fixtures for this stage that have real teams (not TBD),
+    // sorted by kickoff so they line up with official match number order.
+    const stageFx = fixtures
+      .filter(f =>
+        f.stage === stage &&
+        f.home && f.home !== 'TBD' &&
+        f.away && f.away !== 'TBD'
+      )
+      .sort((a, b) => (a.date + a.timeUTC).localeCompare(b.date + b.timeUTC));
+
+    stageFx.forEach((f, i) => {
+      const matchNum = matchNums[i];
+      if (!matchNum) return;
+
+      // Resolve winner to actual team code
+      let winner: string | undefined;
+      if (f.status === 'completed' && f.winnerCode) {
+        if (f.winnerCode === 'home') winner = f.home;
+        else if (f.winnerCode === 'away') winner = f.away;
+      }
+
+      result[matchNum] = { home: f.home, away: f.away, winner };
     });
   }
-  return results;
+
+  return result;
 }
 
 // ── Match card component ────────────────────────────────────────────────
@@ -180,17 +191,16 @@ export default function Bracket() {
   const championLogo = theme === 'dark' ? logoDark : logoLight;
 
   const actualGroupPositions = useMemo(() => deriveActualGroupPositions(fixtures), [fixtures]);
-  const actualKnockoutResults = useMemo(() => deriveActualKnockoutResults(fixtures), [fixtures]);
+  const actualKnockoutFixtures = useMemo(() => deriveActualKnockoutFixtures(fixtures), [fixtures]);
 
   const bracket = useMemo(
-    () => buildOfficialBracket(sim, actualGroupPositions, actualKnockoutResults),
-    [sim, actualGroupPositions, actualKnockoutResults]
+    () => buildOfficialBracket(sim, actualGroupPositions, undefined, actualKnockoutFixtures),
+    [sim, actualGroupPositions, actualKnockoutFixtures]
   );
 
   const thirdPlace = bracket.thirdPlace;
 
-
-  const hasActualResults = Object.keys(actualKnockoutResults).length > 0;
+  const hasActualResults = Object.values(actualKnockoutFixtures).some(f => f.winner);
 
   // Champion probability table from full simulation
   const championCandidates = useMemo(() => {
