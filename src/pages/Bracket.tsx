@@ -47,53 +47,181 @@ function deriveActualGroupPositions(
 }
 
 // ── Derive actual knockout results from fixtures ──────────────────────
-// ── Extract real knockout fixture pairings + winners from Supabase data ─
-// Returns a map keyed by official match number (73-104) with home/away team
-// codes and (if completed) the winning team code.
-// Works for ALL knockout stages: R32, R16, QF, SF, Third, Final.
 function deriveActualKnockoutFixtures(
-  fixtures: ReturnType<typeof useWC2026Fixtures>['fixtures']
+  fixtures: ReturnType<typeof useWC2026Fixtures>['fixtures'],
+  actualGroupPositions?: Record<string, string[]>
 ): Record<number, RealKnockoutFixture> {
   const result: Record<number, RealKnockoutFixture> = {};
 
-  // Official match number ranges per stage, in chronological kickoff order
-  const STAGE_MATCH_NUMS: Record<string, number[]> = {
-    r32:   [73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88],
-    r16:   [89,90,91,92,93,94,95,96],
-    qf:    [97,98,99,100],
-    sf:    [101,102],
-    third: [103],
-    final: [104],
+  const R32_SEEDING = [
+    { matchNum: 73, home: '2A', away: '2B' },
+    { matchNum: 74, home: '1E', away: '3ABCDF' },
+    { matchNum: 75, home: '1F', away: '2C' },
+    { matchNum: 76, home: '1C', away: '2F' },
+    { matchNum: 77, home: '1I', away: '3CDFGH' },
+    { matchNum: 78, home: '2E', away: '2I' },
+    { matchNum: 79, home: '1A', away: '3CEFHI' },
+    { matchNum: 80, home: '1L', away: '3EHIJK' },
+    { matchNum: 81, home: '1D', away: '3BEFIJ' },
+    { matchNum: 82, home: '1G', away: '3AEHIJ' },
+    { matchNum: 83, home: '2K', away: '2L' },
+    { matchNum: 84, home: '1H', away: '2J' },
+    { matchNum: 85, home: '1B', away: '3EFGIJ' },
+    { matchNum: 86, home: '1J', away: '2H' },
+    { matchNum: 87, home: '1K', away: '3DEIJL' },
+    { matchNum: 88, home: '2D', away: '2G' },
+  ] as const;
+
+  const R16_SEEDING = [
+    { matchNum: 89, from: [74, 77] },
+    { matchNum: 90, from: [73, 75] },
+    { matchNum: 91, from: [76, 78] },
+    { matchNum: 92, from: [79, 80] },
+    { matchNum: 93, from: [83, 84] },
+    { matchNum: 94, from: [81, 82] },
+    { matchNum: 95, from: [86, 88] },
+    { matchNum: 96, from: [85, 87] },
+  ] as const;
+
+  const QF_SEEDING = [
+    { matchNum: 97, from: [89, 90] },
+    { matchNum: 98, from: [93, 94] },
+    { matchNum: 99, from: [91, 92] },
+    { matchNum: 100, from: [95, 96] },
+  ] as const;
+
+  const SF_SEEDING = [
+    { matchNum: 101, from: [97, 98] },
+    { matchNum: 102, from: [99, 100] },
+  ] as const;
+
+  const getWinner = (f: typeof fixtures[number]): string | undefined => {
+    if (f.status !== 'completed' || !f.winnerCode) return undefined;
+    if (f.winnerCode === 'home') return f.home;
+    if (f.winnerCode === 'away') return f.away;
+    return undefined;
   };
 
-  const koStages = ['r32', 'r16', 'qf', 'sf', 'third', 'final'] as const;
+  const teamSlotMap = new Map<string, string>();
 
-  for (const stage of koStages) {
-    const matchNums = STAGE_MATCH_NUMS[stage];
+  if (actualGroupPositions) {
+    for (const [group, positions] of Object.entries(actualGroupPositions)) {
+      if (positions[0]) teamSlotMap.set(positions[0], `1${group}`);
+      if (positions[1]) teamSlotMap.set(positions[1], `2${group}`);
+      if (positions[2]) teamSlotMap.set(positions[2], `3${group}`);
+    }
+  }
 
-    // Get all fixtures for this stage that have real teams (not TBD),
-    // sorted by kickoff so they line up with official match number order.
-    const stageFx = fixtures
-      .filter(f =>
-        f.stage === stage &&
-        f.home && f.home !== 'TBD' &&
-        f.away && f.away !== 'TBD'
-      )
-      .sort((a, b) => (a.date + a.timeUTC).localeCompare(b.date + b.timeUTC));
+  const slotMatchesTeam = (slot: string, teamCode: string): boolean => {
+    const teamSlot = teamSlotMap.get(teamCode);
+    if (!teamSlot) return false;
 
-    stageFx.forEach((f, i) => {
-      const matchNum = matchNums[i];
-      if (!matchNum) return;
+    if (slot.startsWith('1') || slot.startsWith('2')) {
+      return slot === teamSlot;
+    }
 
-      // Resolve winner to actual team code
-      let winner: string | undefined;
-      if (f.status === 'completed' && f.winnerCode) {
-        if (f.winnerCode === 'home') winner = f.home;
-        else if (f.winnerCode === 'away') winner = f.away;
-      }
+    if (slot.startsWith('3')) {
+      return teamSlot.startsWith('3') && slot.slice(1).includes(teamSlot.slice(1));
+    }
 
-      result[matchNum] = { home: f.home, away: f.away, winner };
-    });
+    return false;
+  };
+
+  const samePair = (
+    fixtureHome: string,
+    fixtureAway: string,
+    slotHome: string,
+    slotAway: string
+  ): boolean => {
+    return (
+      (slotMatchesTeam(slotHome, fixtureHome) && slotMatchesTeam(slotAway, fixtureAway)) ||
+      (slotMatchesTeam(slotHome, fixtureAway) && slotMatchesTeam(slotAway, fixtureHome))
+    );
+  };
+
+  const r32Fixtures = fixtures.filter(
+    f => f.stage === 'r32' && f.home && f.home !== 'TBD' && f.away && f.away !== 'TBD'
+  );
+
+  const usedFixtureIds = new Set<string>();
+
+  for (const f of r32Fixtures) {
+    const seed = R32_SEEDING.find(
+      s =>
+        !result[s.matchNum] &&
+        samePair(f.home, f.away, s.home, s.away)
+    );
+
+    if (!seed) continue;
+
+    result[seed.matchNum] = {
+      home: f.home,
+      away: f.away,
+      winner: getWinner(f),
+    };
+
+    usedFixtureIds.add(`${f.stage}-${f.home}-${f.away}-${f.date}-${f.timeUTC}`);
+  }
+
+  const assignByPredecessors = (
+    stage: 'r16' | 'qf' | 'sf',
+    seeding: ReadonlyArray<{ matchNum: number; from: readonly [number, number] }>
+  ) => {
+    const stageFixtures = fixtures.filter(
+      f => f.stage === stage && f.home && f.home !== 'TBD' && f.away && f.away !== 'TBD'
+    );
+
+    for (const f of stageFixtures) {
+      const key = `${f.stage}-${f.home}-${f.away}-${f.date}-${f.timeUTC}`;
+      if (usedFixtureIds.has(key)) continue;
+
+      const match = seeding.find(s => {
+        if (result[s.matchNum]) return false;
+
+        const w1 = result[s.from[0]]?.winner;
+        const w2 = result[s.from[1]]?.winner;
+        if (!w1 || !w2) return false;
+
+        const teams = [f.home, f.away];
+        return teams.includes(w1) && teams.includes(w2);
+      });
+
+      if (!match) continue;
+
+      result[match.matchNum] = {
+        home: f.home,
+        away: f.away,
+        winner: getWinner(f),
+      };
+
+      usedFixtureIds.add(key);
+    }
+  };
+
+  assignByPredecessors('r16', R16_SEEDING);
+  assignByPredecessors('qf', QF_SEEDING);
+  assignByPredecessors('sf', SF_SEEDING);
+
+  const thirdFixture = fixtures.find(
+    f => f.stage === 'third' && f.home && f.home !== 'TBD' && f.away && f.away !== 'TBD'
+  );
+  if (thirdFixture) {
+    result[103] = {
+      home: thirdFixture.home,
+      away: thirdFixture.away,
+      winner: getWinner(thirdFixture),
+    };
+  }
+
+  const finalFixture = fixtures.find(
+    f => f.stage === 'final' && f.home && f.home !== 'TBD' && f.away && f.away !== 'TBD'
+  );
+  if (finalFixture) {
+    result[104] = {
+      home: finalFixture.home,
+      away: finalFixture.away,
+      winner: getWinner(finalFixture),
+    };
   }
 
   return result;
@@ -191,7 +319,10 @@ export default function Bracket() {
   const championLogo = theme === 'dark' ? logoDark : logoLight;
 
   const actualGroupPositions = useMemo(() => deriveActualGroupPositions(fixtures), [fixtures]);
-  const actualKnockoutFixtures = useMemo(() => deriveActualKnockoutFixtures(fixtures), [fixtures]);
+  const actualKnockoutFixtures = useMemo(
+    () => deriveActualKnockoutFixtures(fixtures, actualGroupPositions),
+    [fixtures, actualGroupPositions]
+  );
 
   const bracket = useMemo(
     () => buildOfficialBracket(sim, actualGroupPositions, undefined, actualKnockoutFixtures),
