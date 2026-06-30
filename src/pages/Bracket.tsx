@@ -110,10 +110,12 @@ function deriveActualKnockoutFixtures(
 // ── Bracket geometry constants ───────────────────────────────────────────
 // R32 cards are the densest column; every other round's vertical position
 // is derived from the midpoint of the two R32-rooted matches that feed it.
-const CARD_H = 46;     // height of one match card (px)
-const CARD_GAP = 10;   // gap between two cards in the same round (px)
+const HEADER_H = 18;   // match-number header row height (px)
+const ROW_H = 28;      // height of one team row (px)
+const CARD_H = HEADER_H + ROW_H * 2 + 1; // header + home row + away row + 1px divider
+const CARD_GAP = 14;   // gap between two cards in the same round (px)
 const R32_PAIR_H = CARD_H * 2 + CARD_GAP; // height of one R32 "pair" block
-const COL_W = 176;     // column width
+const COL_W = 196;     // column width
 const COL_GAP = 56;    // horizontal gap between columns (room for connectors)
 
 // ── Match card component ────────────────────────────────────────────────
@@ -125,22 +127,24 @@ function MatchCard({
   compact?: boolean;
 }) {
   const isTbd = match.home.code === 'TBD' && match.away.code === 'TBD';
-  const py = compact ? 'py-1' : 'py-1.5';
 
   function TeamRow({ slot }: { slot: BracketTeamSlot }) {
     const team = slot.code !== 'TBD' ? getTeamByCode(slot.code) : null;
     const isWinner = match.winner?.code === slot.code && slot.code !== 'TBD';
 
     return (
-      <div className={`flex items-center gap-1.5 px-2.5 ${py} ${isWinner ? 'bg-brand-50/70 dark:bg-brand-500/10' : ''}`}>
+      <div
+        className={`flex items-center gap-2 px-3 ${isWinner ? 'bg-brand-50/70 dark:bg-brand-500/10' : ''}`}
+        style={{ height: ROW_H }}
+      >
         {team ? (
           <>
-            <TeamBadge name={team.name} code={team.code} size="sm" showName={!compact} />
-            {compact && <span className="text-[10px] font-medium text-slate-700 dark:text-slate-300">{team.code}</span>}
-            {isWinner && <CheckCircle2 className="w-3 h-3 text-brand-500 flex-shrink-0 ml-auto" />}
+            <TeamBadge name={team.name} code={team.code} size="md" showName={!compact} />
+            {compact && <span className="text-xs font-medium text-slate-700 dark:text-slate-300">{team.code}</span>}
+            {isWinner && <CheckCircle2 className="w-3.5 h-3.5 text-brand-500 flex-shrink-0 ml-auto" />}
           </>
         ) : (
-          <span className="text-[10px] text-slate-400 italic truncate">{slot.label}</span>
+          <span className="text-xs text-slate-400 italic truncate">{slot.label}</span>
         )}
       </div>
     );
@@ -158,10 +162,13 @@ function MatchCard({
       style={{ height: CARD_H }}
     >
       {showMatchNum && (
-        <div className="px-2 py-0 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 flex items-center justify-between">
-          <span className="text-[8px] text-slate-400">M{match.matchNum}</span>
-          {match.isActual && <span className="text-[8px] text-brand-500 flex items-center gap-0.5"><CheckCircle2 className="w-2 h-2" />Actual</span>}
-          {!match.isActual && !isTbd && <span className="text-[8px] text-amber-400 flex items-center gap-0.5"><Sparkles className="w-2 h-2" />Predicted</span>}
+        <div
+          className="px-2.5 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 flex items-center justify-between"
+          style={{ height: HEADER_H }}
+        >
+          <span className="text-[10px] text-slate-400">M{match.matchNum}</span>
+          {match.isActual && <span className="text-[10px] text-brand-500 flex items-center gap-1"><CheckCircle2 className="w-2.5 h-2.5" />Actual</span>}
+          {!match.isActual && !isTbd && <span className="text-[10px] text-amber-400 flex items-center gap-1"><Sparkles className="w-2.5 h-2.5" />Predicted</span>}
         </div>
       )}
       <TeamRow slot={match.home} />
@@ -286,7 +293,7 @@ function BracketColumn({
       )}
 
       <div style={{ width: COL_W, flexShrink: 0 }}>
-        <h4 className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2 text-center">
+        <h4 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2 text-center">
           {title}
         </h4>
         <div className="relative" style={{ height }}>
@@ -454,7 +461,7 @@ export default function Bracket() {
                 <div style={{ position: 'relative', height: r32Height }}>
                   {/* Final */}
                   <div className="absolute left-0 right-0" style={{ top: finalY - 24 }}>
-                    <h4 className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2 text-center">Final</h4>
+                    <h4 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2 text-center">Final</h4>
                     <MatchCard match={bracket.final} showMatchNum />
 
                     {/* Champion */}
@@ -483,7 +490,7 @@ export default function Bracket() {
 
                   {/* Third place — positioned near the bottom, below semis */}
                   <div className="absolute left-0 right-0" style={{ top: r32Height - CARD_H - 24 }}>
-                    <h4 className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2 text-center">
+                    <h4 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2 text-center">
                       Third Place
                     </h4>
                     <MatchCard match={thirdPlace} showMatchNum />
