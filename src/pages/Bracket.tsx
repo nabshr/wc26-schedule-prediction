@@ -59,49 +59,81 @@ function deriveActualGroupPositions(
 // Returns a map keyed by official match number (73-104) with home/away team
 // codes and (if completed) the winning team code.
 // Works for ALL knockout stages: R32, R16, QF, SF, Third, Final.
+//
+// IMPORTANT: Official FIFA match numbers do NOT follow strict kickoff-time
+// chronological order (e.g. M76 kicks off before M74; M82 kicks off before
+// M81). Assigning match numbers by sorted position is therefore WRONG.
+// Instead we look up the exact UTC kickoff timestamp against this fixed
+// table, which was built directly from the official FIFA schedule.
+const OFFICIAL_KICKOFF_TO_MATCH_NUM: Record<string, number> = {
+  // R32 (M73-M88) — key format: 'YYYY-MM-DDTHH:MM'
+  '2026-06-28T19:00': 73,  // RSA vs CAN
+  '2026-06-29T20:30': 74,  // GER vs PAR
+  '2026-06-30T01:00': 75,  // NED vs MAR
+  '2026-06-29T17:00': 76,  // BRA vs JPN
+  '2026-06-30T21:00': 77,  // FRA vs SWE
+  '2026-06-30T17:00': 78,  // CIV vs NOR
+  '2026-07-01T01:00': 79,  // MEX vs ECU
+  '2026-07-01T16:00': 80,  // ENG vs COD
+  '2026-07-02T00:00': 81,  // USA vs BIH
+  '2026-07-01T20:00': 82,  // BEL vs SEN
+  '2026-07-02T23:00': 83,  // POR vs CRO
+  '2026-07-02T19:00': 84,  // ESP vs AUT
+  '2026-07-03T03:00': 85,  // SUI vs ALG
+  '2026-07-03T22:00': 86,  // ARG vs CPV
+  '2026-07-04T01:30': 87,  // COL vs GHA
+  '2026-07-03T18:00': 88,  // AUS vs EGY
+
+  // R16 (M89-M96)
+  '2026-07-04T21:00': 89,
+  '2026-07-04T17:00': 90,
+  '2026-07-05T20:00': 91,
+  '2026-07-06T00:00': 92,
+  '2026-07-06T19:00': 93,
+  '2026-07-07T00:00': 94,
+  '2026-07-07T16:00': 95,
+  '2026-07-07T20:00': 96,
+
+  // QF (M97-M100)
+  '2026-07-09T20:00': 97,
+  '2026-07-10T19:00': 98,
+  '2026-07-11T21:00': 99,
+  '2026-07-12T01:00': 100,
+
+  // SF (M101-M102)
+  '2026-07-14T19:00': 101,
+  '2026-07-15T19:00': 102,
+
+  // Third place / Final
+  '2026-07-18T21:00': 103,
+  '2026-07-19T19:00': 104,
+};
+
 function deriveActualKnockoutFixtures(
   fixtures: ReturnType<typeof useWC2026Fixtures>['fixtures']
 ): Record<number, RealKnockoutFixture> {
   const result: Record<number, RealKnockoutFixture> = {};
 
-  // Official match number ranges per stage, in chronological kickoff order
-  const STAGE_MATCH_NUMS: Record<string, number[]> = {
-    r32:   [73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88],
-    r16:   [89,90,91,92,93,94,95,96],
-    qf:    [97,98,99,100],
-    sf:    [101,102],
-    third: [103],
-    final: [104],
-  };
-
   const koStages = ['r32', 'r16', 'qf', 'sf', 'third', 'final'] as const;
 
-  for (const stage of koStages) {
-    const matchNums = STAGE_MATCH_NUMS[stage];
+  for (const f of fixtures) {
+    if (!koStages.includes(f.stage as typeof koStages[number])) continue;
+    if (!f.home || f.home === 'TBD' || !f.away || f.away === 'TBD') continue;
 
-    // Get all fixtures for this stage that have real teams (not TBD),
-    // sorted by kickoff so they line up with official match number order.
-    const stageFx = fixtures
-      .filter(f =>
-        f.stage === stage &&
-        f.home && f.home !== 'TBD' &&
-        f.away && f.away !== 'TBD'
-      )
-      .sort((a, b) => (a.date + a.timeUTC).localeCompare(b.date + b.timeUTC));
+    // Build the lookup key from this fixture's actual kickoff date+time.
+    // f.date is 'YYYY-MM-DD', f.timeUTC is 'HH:MM' (both already UTC).
+    const key = `${f.date}T${f.timeUTC}`;
+    const matchNum = OFFICIAL_KICKOFF_TO_MATCH_NUM[key];
+    if (!matchNum) continue; // unrecognized kickoff time — skip rather than guess
 
-    stageFx.forEach((f, i) => {
-      const matchNum = matchNums[i];
-      if (!matchNum) return;
+    // winner_code in Supabase is stored as the actual team code (e.g. "CAN"),
+    // not 'home'/'away'. Use it directly; skip only null/'draw'.
+    let winner: string | undefined;
+    if (f.status === 'completed' && f.winnerCode && f.winnerCode !== 'draw') {
+      winner = f.winnerCode;
+    }
 
-      // winner_code in Supabase is stored as the actual team code (e.g. "CAN"),
-      // not 'home'/'away'. Use it directly; skip only null/'draw'.
-      let winner: string | undefined;
-      if (f.status === 'completed' && f.winnerCode && f.winnerCode !== 'draw') {
-        winner = f.winnerCode;
-      }
-
-      result[matchNum] = { home: f.home, away: f.away, winner };
-    });
+    result[matchNum] = { home: f.home, away: f.away, winner };
   }
 
   return result;
@@ -144,7 +176,7 @@ function MatchCard({
             {isWinner && <CheckCircle2 className="w-3.5 h-3.5 text-brand-500 flex-shrink-0 ml-auto" />}
           </>
         ) : (
-          <span className="text-xs text-slate-400 italic truncate">{slot.label}</span>
+          <span className="text-[10px] text-slate-400 italic truncate">{slot.label}</span>
         )}
       </div>
     );
@@ -293,7 +325,7 @@ function BracketColumn({
       )}
 
       <div style={{ width: COL_W, flexShrink: 0 }}>
-        <h4 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2 text-center">
+        <h4 className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2 text-center">
           {title}
         </h4>
         <div className="relative" style={{ height }}>
@@ -461,7 +493,7 @@ export default function Bracket() {
                 <div style={{ position: 'relative', height: r32Height }}>
                   {/* Final */}
                   <div className="absolute left-0 right-0" style={{ top: finalY - 24 }}>
-                    <h4 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2 text-center">Final</h4>
+                    <h4 className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2 text-center">Final</h4>
                     <MatchCard match={bracket.final} showMatchNum />
 
                     {/* Champion */}
@@ -490,7 +522,7 @@ export default function Bracket() {
 
                   {/* Third place — positioned near the bottom, below semis */}
                   <div className="absolute left-0 right-0" style={{ top: r32Height - CARD_H - 24 }}>
-                    <h4 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2 text-center">
+                    <h4 className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2 text-center">
                       Third Place
                     </h4>
                     <MatchCard match={thirdPlace} showMatchNum />
@@ -519,7 +551,7 @@ export default function Bracket() {
                 : 'bg-slate-100 dark:bg-slate-700 text-slate-500'
               }`}>{i + 1}</span>
               <TeamBadge name={team.name} code={team.code} size="sm" />
-              <span className="text-xs text-slate-400">Elo {team.elo}</span>
+              <span className="text-[10px] text-slate-400">Elo {team.elo}</span>
               <div className="flex-1 h-2 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
                 <div
                   className={`h-full rounded-full transition-all duration-700 ${
