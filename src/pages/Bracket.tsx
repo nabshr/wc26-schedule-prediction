@@ -5,7 +5,12 @@ import RoundedCard from '../components/RoundedCard';
 import TeamBadge from '../components/TeamBadge';
 import { getTeamByCode } from '../data/worldCup2026';
 import { simulateGroupStage } from '../lib/prediction';
-import { buildOfficialBracket, type BracketMatch, type BracketTeamSlot, type RealKnockoutFixture } from '../lib/bracketSeeding';
+import {
+  buildOfficialBracket,
+  type BracketMatch,
+  type BracketTeamSlot,
+  type RealKnockoutFixture,
+} from '../lib/bracketSeeding';
 import { useWC2026Fixtures } from '../lib/useWC2026Fixtures';
 import { useTheme } from '../context/ThemeContext';
 import logoLight from '../assets/wc26_light.png';
@@ -21,32 +26,46 @@ function deriveActualGroupPositions(
   for (const f of fixtures) {
     if (f.stage !== 'group' || f.status !== 'completed') continue;
     if (f.homeScore == null || f.awayScore == null || !f.group) continue;
+
     const g = f.group;
     if (!tbl[g]) tbl[g] = {};
     if (!tbl[g][f.home]) tbl[g][f.home] = { pts: 0, gd: 0, gf: 0, played: 0 };
     if (!tbl[g][f.away]) tbl[g][f.away] = { pts: 0, gd: 0, gf: 0, played: 0 };
-    const h = tbl[g][f.home]; const a = tbl[g][f.away];
-    h.played++; a.played++;
-    h.gf += f.homeScore; h.gd += f.homeScore - f.awayScore;
-    a.gf += f.awayScore; a.gd += f.awayScore - f.homeScore;
-    if (f.homeScore > f.awayScore) { h.pts += 3; }
-    else if (f.homeScore === f.awayScore) { h.pts += 1; a.pts += 1; }
-    else { a.pts += 3; }
+
+    const h = tbl[g][f.home];
+    const a = tbl[g][f.away];
+
+    h.played++;
+    a.played++;
+    h.gf += f.homeScore;
+    h.gd += f.homeScore - f.awayScore;
+    a.gf += f.awayScore;
+    a.gd += f.awayScore - f.homeScore;
+
+    if (f.homeScore > f.awayScore) h.pts += 3;
+    else if (f.homeScore === f.awayScore) {
+      h.pts += 1;
+      a.pts += 1;
+    } else {
+      a.pts += 3;
+    }
   }
 
   const result: Record<string, string[]> = {};
   for (const [g, teams] of Object.entries(tbl)) {
-    if (Object.keys(teams).length < 4) continue; // group not complete
+    if (Object.keys(teams).length < 4) continue;
     const allPlayedEnough = Object.values(teams).every(t => t.played >= 3);
     if (!allPlayedEnough) continue;
+
     result[g] = Object.entries(teams)
       .sort(([, a], [, b]) => b.pts - a.pts || b.gd - a.gd || b.gf - a.gf)
       .map(([code]) => code);
   }
+
   return Object.keys(result).length > 0 ? result : undefined;
 }
 
-// ── Derive actual knockout results from fixtures ──────────────────────
+// ── Derive actual knockout fixtures from results ────────────────────────
 function deriveActualKnockoutFixtures(
   fixtures: ReturnType<typeof useWC2026Fixtures>['fixtures'],
   actualGroupPositions?: Record<string, string[]>
@@ -116,14 +135,8 @@ function deriveActualKnockoutFixtures(
     const teamSlot = teamSlotMap.get(teamCode);
     if (!teamSlot) return false;
 
-    if (slot.startsWith('1') || slot.startsWith('2')) {
-      return slot === teamSlot;
-    }
-
-    if (slot.startsWith('3')) {
-      return teamSlot.startsWith('3') && slot.slice(1).includes(teamSlot.slice(1));
-    }
-
+    if (slot.startsWith('1') || slot.startsWith('2')) return slot === teamSlot;
+    if (slot.startsWith('3')) return teamSlot.startsWith('3') && slot.slice(1).includes(teamSlot.slice(1));
     return false;
   };
 
@@ -147,9 +160,7 @@ function deriveActualKnockoutFixtures(
 
   for (const f of r32Fixtures) {
     const seed = R32_SEEDING.find(
-      s =>
-        !result[s.matchNum] &&
-        samePair(f.home, f.away, s.home, s.away)
+      s => !result[s.matchNum] && samePair(f.home, f.away, s.home, s.away)
     );
 
     if (!seed) continue;
@@ -177,11 +188,9 @@ function deriveActualKnockoutFixtures(
 
       const match = seeding.find(s => {
         if (result[s.matchNum]) return false;
-
         const w1 = result[s.from[0]]?.winner;
         const w2 = result[s.from[1]]?.winner;
         if (!w1 || !w2) return false;
-
         const teams = [f.home, f.away];
         return teams.includes(w1) && teams.includes(w2);
       });
@@ -227,7 +236,7 @@ function deriveActualKnockoutFixtures(
   return result;
 }
 
-// ── Match card component ────────────────────────────────────────────────
+// ── Match card ──────────────────────────────────────────────────────────
 function MatchCard({
   match,
   size = 'sm',
@@ -328,174 +337,6 @@ function MatchCard({
   );
 }
 
-// ── Round column ────────────────────────────────────────────────────────
-function RoundColumn({
-  title,
-  matches,
-  size = 'sm',
-  showMatchNum = false,
-  topOffset = 0,
-  pairGap = 28,
-  nextColumnOffset = 18,
-}: {
-  title: string;
-  matches: BracketMatch[];
-  size?: 'xs' | 'sm' | 'md';
-  showMatchNum?: boolean;
-  topOffset?: number;
-  pairGap?: number;
-  nextColumnOffset?: number;
-}) {
-  const halfLen = Math.ceil(matches.length / 2);
-  const topHalf = matches.slice(0, halfLen);
-  const bottomHalf = matches.slice(halfLen);
-
-  function HalfBracket({ items }: { items: BracketMatch[] }) {
-    const pairs: BracketMatch[][] = [];
-    for (let i = 0; i < items.length; i += 2) {
-      pairs.push(items.slice(i, i + 2));
-    }
-
-    return (
-      <div className="flex flex-col" style={{ gap: `${pairGap}px` }}>
-        {pairs.map((pair, pairIndex) => (
-          <div
-            key={`pair-${pair[0]?.matchNum ?? pairIndex}`}
-            className="relative"
-            style={{ marginTop: pairIndex === 0 ? topOffset : 0 }}
-          >
-            <div className="flex flex-col gap-2.5">
-              {pair.map((m) => (
-                <div key={m.matchNum} className="relative">
-                  <MatchCard match={m} size={size} showMatchNum={showMatchNum} />
-                </div>
-              ))}
-            </div>
-
-            {pair.length === 2 && (
-              <>
-                {/* short horizontal line from top match */}
-                <div
-                  className="absolute bg-slate-300/80 dark:bg-slate-600/80"
-                  style={{
-                    right: `-${nextColumnOffset}px`,
-                    top: '25%',
-                    width: `${nextColumnOffset}px`,
-                    height: '1px',
-                  }}
-                />
-
-                {/* short horizontal line from bottom match */}
-                <div
-                  className="absolute bg-slate-300/80 dark:bg-slate-600/80"
-                  style={{
-                    right: `-${nextColumnOffset}px`,
-                    top: '75%',
-                    width: `${nextColumnOffset}px`,
-                    height: '1px',
-                  }}
-                />
-
-                {/* vertical join */}
-                <div
-                  className="absolute bg-slate-300/80 dark:bg-slate-600/80"
-                  style={{
-                    right: `-${nextColumnOffset}px`,
-                    top: '25%',
-                    width: '1px',
-                    height: '50%',
-                  }}
-                />
-
-                {/* output line to next round */}
-                <div
-                  className="absolute bg-slate-300/80 dark:bg-slate-600/80"
-                  style={{
-                    right: `-${nextColumnOffset * 2}px`,
-                    top: '50%',
-                    width: `${nextColumnOffset}px`,
-                    height: '1px',
-                  }}
-                />
-              </>
-            )}
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex-1 min-w-[172px]">
-      <h4 className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-[0.18em] mb-3 text-center">
-        {title}
-      </h4>
-
-      <div className="flex flex-col gap-6">
-        <HalfBracket items={topHalf} />
-        <HalfBracket items={bottomHalf} />
-      </div>
-    </div>
-  );
-}
-
-const CARD_W = 250;
-const CARD_H_XS = 76;
-const CARD_H_SM = 74;
-const CARD_H_MD = 78;
-
-const COL_GAP = 90;
-
-const R32_TOP_Y = [0, 94, 188, 282, 420, 514, 608, 702];
-const R16_TOP_Y = [47, 235, 467, 655];
-const QF_TOP_Y = [141, 561];
-const SF_TOP_Y = [351];
-
-function mid(y: number, h: number) {
-  return y + h / 2;
-}
-
-function BracketLines({
-  fromYs,
-  toYs,
-  fromCardHeight,
-  toCardHeight,
-  fromX,
-  toX,
-}: {
-  fromYs: number[];
-  toYs: number[];
-  fromCardHeight: number;
-  toCardHeight: number;
-  fromX: number;
-  toX: number;
-}) {
-  const stroke = 'rgba(148,163,184,0.65)';
-
-  return (
-    <svg className="absolute inset-0 pointer-events-none overflow-visible" width="100%" height="100%">
-      {toYs.map((toY, i) => {
-        const y1 = mid(fromYs[i * 2], fromCardHeight);
-        const y2 = mid(fromYs[i * 2 + 1], fromCardHeight);
-        const yMid = mid(toY, toCardHeight);
-
-        const x1 = fromX + CARD_W;
-        const xMid = fromX + CARD_W + COL_GAP / 2;
-        const x2 = toX;
-
-        return (
-          <g key={i}>
-            <line x1={x1} y1={y1} x2={xMid} y2={y1} stroke={stroke} strokeWidth="1.5" />
-            <line x1={x1} y1={y2} x2={xMid} y2={y2} stroke={stroke} strokeWidth="1.5" />
-            <line x1={xMid} y1={y1} x2={xMid} y2={y2} stroke={stroke} strokeWidth="1.5" />
-            <line x1={xMid} y1={yMid} x2={x2} y2={yMid} stroke={stroke} strokeWidth="1.5" />
-          </g>
-        );
-      })}
-    </svg>
-  );
-}
-
 export default function Bracket() {
   const sim = useMemo(() => simulateGroupStage(DEFAULT_SIMULATION_RUNS, SIMULATION_SEED), []);
   const { fixtures } = useWC2026Fixtures();
@@ -517,7 +358,6 @@ export default function Bracket() {
 
   const hasActualResults = Object.values(actualKnockoutFixtures).some(f => f.winner);
 
-  // Champion probability table from full simulation
   const championCandidates = useMemo(() => {
     return Object.entries(sim.knockout.championProb)
       .map(([code, prob]) => ({ team: getTeamByCode(code), prob }))
@@ -528,7 +368,6 @@ export default function Bracket() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Bracket</h1>
@@ -536,21 +375,26 @@ export default function Bracket() {
             Official FIFA 2026 bracket seeding — predictions auto-update with real results
           </p>
         </div>
+
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-700 rounded-lg px-3 py-1.5">
             <Cpu className="w-3.5 h-3.5 text-brand-500" />
-            <span className="text-[11px] font-medium text-slate-600 dark:text-slate-300">50K Monte Carlo</span>
+            <span className="text-[11px] font-medium text-slate-600 dark:text-slate-300">
+              50K Monte Carlo
+            </span>
           </div>
+
           {hasActualResults && (
             <div className="flex items-center gap-1.5 bg-green-50 dark:bg-green-500/10 rounded-lg px-3 py-1.5">
               <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />
-              <span className="text-[11px] font-medium text-green-600 dark:text-green-400">Live results applied</span>
+              <span className="text-[11px] font-medium text-green-600 dark:text-green-400">
+                Live results applied
+              </span>
             </div>
           )}
         </div>
       </div>
 
-      {/* Legend */}
       <div className="flex items-center gap-5 text-[11px] text-slate-400">
         <div className="flex items-center gap-1.5">
           <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
@@ -562,7 +406,6 @@ export default function Bracket() {
         </div>
       </div>
 
-      {/* Main bracket */}
       <RoundedCard className="!p-0 overflow-hidden">
         <div className="px-5 py-3 border-b border-slate-100 dark:border-slate-700/50 bg-gradient-to-r from-gold-500/5 to-transparent dark:from-gold-500/10">
           <SectionHeader
@@ -573,77 +416,76 @@ export default function Bracket() {
         </div>
 
         <div className="p-5 sm:p-6 overflow-x-auto bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.03),_transparent_35%)]">
-          <div className="min-w-[1080px] flex items-start gap-6">
-
-            {/* R32 — 16 matches */}
-            <RoundColumn
-              title="Round of 32"
-              matches={bracket.r32}
-              size="xs"
-              showMatchNum={true}
-              topOffset={0}
-              pairGap={18}
-              nextColumnOffset={16}
-            />
-
-            {/* R16 — 8 matches */}
-            <RoundColumn
-              title="Round of 16"
-              matches={bracket.r16}
-              size="sm"
-              showMatchNum={true}
-              topOffset={20}
-              pairGap={44}
-              nextColumnOffset={18}
-            />
-
-            {/* QF — 4 matches */}
-          <RoundColumn
-            title="Quarter-Finals"
-            matches={bracket.qf}
-            size="sm"
-            showMatchNum={true}
-            topOffset={56}
-            pairGap={86}
-            nextColumnOffset={18}
-          />
-
-            {/* SF — 2 matches */}
-            <div className="flex-1 min-w-[172px] relative">
+          <div className="min-w-[1450px] grid grid-cols-[260px_260px_260px_260px_200px] gap-8 items-start">
+            <div>
               <h4 className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-[0.18em] mb-3 text-center">
-                Semi-Finals
+                Round of 32
               </h4>
-              <div className="flex flex-col gap-3 relative">
-                <div style={{ marginTop: 120 }} className="relative">
-                  <MatchCard match={bracket.sf[0]} size="md" showMatchNum={true} />
-                </div>
-                <div className="border-t border-dashed border-slate-200 dark:border-slate-700 my-1 opacity-50" />
-                <div style={{ marginTop: 120 }} className="relative">
-                  <MatchCard match={bracket.sf[1]} size="md" showMatchNum={true} />
-                </div>
+              <div className="space-y-2.5">
+                {bracket.r32.map((match) => (
+                  <MatchCard key={match.matchNum} match={match} size="xs" showMatchNum={true} />
+                ))}
               </div>
             </div>
 
-            <div className="flex flex-col items-center min-w-[160px]" style={{ marginTop: '62vh' }}>
-              <h4 className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2 text-center">
-                Third Place
+            <div>
+              <h4 className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-[0.18em] mb-3 text-center">
+                Round of 16
               </h4>
-              <MatchCard match={thirdPlace} size="md" showMatchNum={true} />
+              <div className="space-y-6 pt-10">
+                {bracket.r16.map((match) => (
+                  <MatchCard key={match.matchNum} match={match} size="sm" showMatchNum={true} />
+                ))}
+              </div>
             </div>
 
-            {/* Final + Champion */}
-            <div className="flex flex-col items-center min-w-[180px]" style={{ marginTop: 290 }}>
-              <h4 className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">Final</h4>
+            <div>
+              <h4 className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-[0.18em] mb-3 text-center">
+                Quarter-Finals
+              </h4>
+              <div className="space-y-12 pt-24">
+                {bracket.qf.map((match) => (
+                  <MatchCard key={match.matchNum} match={match} size="sm" showMatchNum={true} />
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <h4 className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-[0.18em] mb-3 text-center">
+                Semi-Finals
+              </h4>
+              <div className="space-y-24 pt-40">
+                {bracket.sf.map((match) => (
+                  <MatchCard key={match.matchNum} match={match} size="md" showMatchNum={true} />
+                ))}
+              </div>
+
+              <div className="mt-24">
+                <h4 className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-[0.18em] mb-3 text-center">
+                  Third Place
+                </h4>
+                <MatchCard match={thirdPlace} size="md" showMatchNum={true} />
+              </div>
+            </div>
+
+            <div className="pt-56 flex flex-col items-center">
+              <h4 className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-[0.18em] mb-3 text-center">
+                Final
+              </h4>
+
               <div className="w-full">
                 <MatchCard match={bracket.final} size="md" showMatchNum={true} />
               </div>
 
-              {/* Champion */}
-              <div className="mt-5 flex flex-col items-center">
+              <div className="mt-6 flex flex-col items-center">
                 <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-gold-400 to-gold-600 flex items-center justify-center shadow-glow-gold">
                   <img src={championLogo} alt="WC 2026" className="w-full h-full object-contain" />
                 </div>
-                <p className="mt-2 text-xs font-semibold text-gold-600 dark:text-gold-400">Champion</p>
+
+                <p className="mt-2 text-xs font-semibold text-gold-600 dark:text-gold-400">
+                  Champion
+                </p>
+
                 {bracket.final.winner && bracket.final.winner.code !== 'TBD' ? (
                   <div className="mt-1.5 flex flex-col items-center gap-1">
                     <TeamBadge
@@ -651,22 +493,21 @@ export default function Bracket() {
                       code={bracket.final.winner.code}
                       size="sm"
                     />
-                    {bracket.final.isActual
-                      ? <span className="text-[9px] text-brand-500">✓ Confirmed</span>
-                      : <span className="text-[9px] text-amber-400">~ Predicted</span>
-                    }
+                    {bracket.final.isActual ? (
+                      <span className="text-[9px] text-brand-500">✓ Confirmed</span>
+                    ) : (
+                      <span className="text-[9px] text-amber-400">~ Predicted</span>
+                    )}
                   </div>
                 ) : (
                   <p className="text-[10px] text-slate-400 mt-1">TBD</p>
                 )}
               </div>
             </div>
-
           </div>
         </div>
       </RoundedCard>
 
-      {/* Champion probability */}
       <RoundedCard hover={false}>
         <SectionHeader
           title="Champion Probability"
@@ -676,13 +517,21 @@ export default function Bracket() {
         <div className="mt-4 space-y-3">
           {championCandidates.map(({ team, prob }, i) => team && (
             <div key={team.code} className="flex items-center gap-3">
-              <span className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold ${
-                i === 0 ? 'bg-gold-500/10 text-gold-600 dark:bg-gold-500/20 dark:text-gold-400'
-                : i < 3 ? 'bg-brand-100 dark:bg-brand-500/20 text-brand-600 dark:text-brand-400'
-                : 'bg-slate-100 dark:bg-slate-700 text-slate-500'
-              }`}>{i + 1}</span>
+              <span
+                className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold ${
+                  i === 0
+                    ? 'bg-gold-500/10 text-gold-600 dark:bg-gold-500/20 dark:text-gold-400'
+                    : i < 3
+                      ? 'bg-brand-100 dark:bg-brand-500/20 text-brand-600 dark:text-brand-400'
+                      : 'bg-slate-100 dark:bg-slate-700 text-slate-500'
+                }`}
+              >
+                {i + 1}
+              </span>
+
               <TeamBadge name={team.name} code={team.code} size="sm" />
               <span className="text-xs text-slate-400">Elo {team.elo}</span>
+
               <div className="flex-1 h-2 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
                 <div
                   className={`h-full rounded-full transition-all duration-700 ${
@@ -691,11 +540,18 @@ export default function Bracket() {
                   style={{ width: `${Math.min(prob, 100)}%` }}
                 />
               </div>
-              <span className={`text-sm font-semibold w-14 text-right ${
-                i === 0 ? 'text-gold-600 dark:text-gold-400'
-                : i < 3 ? 'text-brand-600 dark:text-brand-400'
-                : 'text-slate-500'
-              }`}>{prob.toFixed(1)}%</span>
+
+              <span
+                className={`text-sm font-semibold w-14 text-right ${
+                  i === 0
+                    ? 'text-gold-600 dark:text-gold-400'
+                    : i < 3
+                      ? 'text-brand-600 dark:text-brand-400'
+                      : 'text-slate-500'
+                }`}
+              >
+                {prob.toFixed(1)}%
+              </span>
             </div>
           ))}
         </div>
