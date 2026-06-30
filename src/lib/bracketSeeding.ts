@@ -84,10 +84,10 @@ export const R32_SEEDING: Array<{
 export const R16_SEEDING: Array<{ matchNum: number; fromR32: [number, number]; qfMatch: number }> = [
   { matchNum: 89, fromR32: [74, 77], qfMatch: 97 },
   { matchNum: 90, fromR32: [73, 75], qfMatch: 97 },
-  { matchNum: 91, fromR32: [76, 78], qfMatch: 99 },
-  { matchNum: 92, fromR32: [79, 80], qfMatch: 99 },
-  { matchNum: 93, fromR32: [83, 84], qfMatch: 98 },
-  { matchNum: 94, fromR32: [81, 82], qfMatch: 98 },
+  { matchNum: 93, fromR32: [83, 84], qfMatch: 99 },
+  { matchNum: 94, fromR32: [81, 82], qfMatch: 99 },
+  { matchNum: 91, fromR32: [76, 78], qfMatch: 98 },
+  { matchNum: 92, fromR32: [79, 80], qfMatch: 98 },
   { matchNum: 95, fromR32: [86, 88], qfMatch: 100 },
   { matchNum: 96, fromR32: [85, 87], qfMatch: 100 },
 ];
