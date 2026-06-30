@@ -52,7 +52,8 @@ export interface RealKnockoutFixture {
   winner?: string;   // actual winner team code, undefined if match not yet played
 }
 
-// ── Official R32 seeding (M73-M88, top to bottom as per Wikipedia image) ─
+// ── Official R32 seeding (M73-M88) — verified against Wikipedia/fifa.com ─
+// Source: en.wikipedia.org/wiki/2026_FIFA_World_Cup_knockout_stage
 // Format: ['slotKey', 'slotKey']
 // slotKey: '1X' = winner group X, '2X' = runner-up group X, '3ABCD' = 3rd from pool
 export const R32_SEEDING: Array<{
@@ -82,8 +83,8 @@ export const R32_SEEDING: Array<{
   { matchNum: 87, home: '1K', away: '3DEIJL',     r16Match: 96 },
 ];
 
-// R16: which two R32 match numbers feed each R16 match
-const R16_SEEDING: Array<{ matchNum: number; fromR32: [number, number]; qfMatch: number }> = [
+// R16: which two R32 match numbers feed each R16 match (verified vs fifa.com)
+export const R16_SEEDING: Array<{ matchNum: number; fromR32: [number, number]; qfMatch: number }> = [
   { matchNum: 89, fromR32: [74, 77], qfMatch: 97 },
   { matchNum: 90, fromR32: [73, 75], qfMatch: 97 },
   { matchNum: 93, fromR32: [83, 84], qfMatch: 99 },
@@ -94,17 +95,29 @@ const R16_SEEDING: Array<{ matchNum: number; fromR32: [number, number]; qfMatch:
   { matchNum: 96, fromR32: [85, 87], qfMatch: 100 },
 ];
 
-const QF_SEEDING: Array<{ matchNum: number; fromR16: [number, number]; sfMatch: number }> = [
+export const QF_SEEDING: Array<{ matchNum: number; fromR16: [number, number]; sfMatch: number }> = [
   { matchNum: 97,  fromR16: [89, 90], sfMatch: 101 },
   { matchNum: 98,  fromR16: [93, 94], sfMatch: 101 },
   { matchNum: 99,  fromR16: [91, 92], sfMatch: 102 },
   { matchNum: 100, fromR16: [95, 96], sfMatch: 102 },
 ];
 
-const SF_SEEDING: Array<{ matchNum: number; fromQF: [number, number] }> = [
+export const SF_SEEDING: Array<{ matchNum: number; fromQF: [number, number] }> = [
   { matchNum: 101, fromQF: [97, 98] },
   { matchNum: 102, fromQF: [99, 100] },
 ];
+
+// ── Feeder maps keyed by matchNum -> [feederMatchNum1, feederMatchNum2] ──
+// Convenience exports for bracket connector-line rendering.
+export const R16_FEEDERS: Record<number, [number, number]> = Object.fromEntries(
+  R16_SEEDING.map(s => [s.matchNum, s.fromR32])
+);
+export const QF_FEEDERS: Record<number, [number, number]> = Object.fromEntries(
+  QF_SEEDING.map(s => [s.matchNum, s.fromR16])
+);
+export const SF_FEEDERS: Record<number, [number, number]> = Object.fromEntries(
+  SF_SEEDING.map(s => [s.matchNum, s.fromQF])
+);
 
 // ── Derive predicted group positions from simulation ────────────────────
 export function getPredictedGroupPositions(
