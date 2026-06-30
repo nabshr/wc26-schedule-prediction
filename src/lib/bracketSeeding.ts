@@ -62,35 +62,32 @@ export const R32_SEEDING: Array<{
   away: string;
   r16Match: number;  // which R16 match this feeds into
 }> = [
-  // TOP HALF → R16 M89 and M90 → QF M97 → SF M101
-  { matchNum: 74, home: '1E', away: '3ABCDF',     r16Match: 89 },
-  { matchNum: 77, home: '1I', away: '3CDFGH',     r16Match: 89 },
-  { matchNum: 73, home: '2A', away: '2B',         r16Match: 90 },
-  { matchNum: 75, home: '1F', away: '2C',         r16Match: 90 },
-  { matchNum: 83, home: '2K', away: '2L',         r16Match: 93 },
-  { matchNum: 84, home: '1H', away: '2J',         r16Match: 93 },
-  { matchNum: 81, home: '1D', away: '3BEFIJ',     r16Match: 94 },
-  { matchNum: 82, home: '1G', away: '3AEHIJ',     r16Match: 94 },
-
-  // BOTTOM HALF → R16 M91, M92, M95, M96 → QF M98, M100 → SF M102
-  { matchNum: 76, home: '1C', away: '2F',         r16Match: 91 },
-  { matchNum: 78, home: '2E', away: '2I',         r16Match: 91 },
-  { matchNum: 79, home: '1A', away: '3CEFHI',     r16Match: 92 },
-  { matchNum: 80, home: '1L', away: '3EHIJK',     r16Match: 92 },
-  { matchNum: 86, home: '1J', away: '2H',         r16Match: 95 },
-  { matchNum: 88, home: '2D', away: '2G',         r16Match: 95 },
-  { matchNum: 85, home: '1B', away: '3EFGIJ',     r16Match: 96 },
-  { matchNum: 87, home: '1K', away: '3DEIJL',     r16Match: 96 },
+  { matchNum: 73, home: '2A', away: '2B',         r16Match: 90 }, // RSA vs CAN
+  { matchNum: 74, home: '1E', away: '3ABCDF',     r16Match: 89 }, // GER vs PAR
+  { matchNum: 75, home: '1F', away: '2C',         r16Match: 90 }, // NED vs MAR
+  { matchNum: 76, home: '1C', away: '2F',         r16Match: 91 }, // BRA vs JPN
+  { matchNum: 77, home: '1I', away: '3CDFGH',     r16Match: 89 }, // FRA vs SWE
+  { matchNum: 78, home: '2E', away: '2I',         r16Match: 91 }, // CIV vs NOR
+  { matchNum: 79, home: '1A', away: '3CEFHI',     r16Match: 92 }, // MEX vs ECU
+  { matchNum: 80, home: '1L', away: '3EHIJK',     r16Match: 92 }, // ENG vs COD
+  { matchNum: 81, home: '1D', away: '3BEFIJ',     r16Match: 94 }, // USA vs BIH
+  { matchNum: 82, home: '1G', away: '3AEHIJ',     r16Match: 94 }, // BEL vs SEN
+  { matchNum: 83, home: '2K', away: '2L',         r16Match: 93 }, // POR vs CRO
+  { matchNum: 84, home: '1H', away: '2J',         r16Match: 93 }, // ESP vs AUT
+  { matchNum: 85, home: '1B', away: '3EFGIJ',     r16Match: 96 }, // SUI vs ALG
+  { matchNum: 86, home: '1J', away: '2H',         r16Match: 95 }, // ARG vs CPV
+  { matchNum: 87, home: '1K', away: '3DEIJL',     r16Match: 96 }, // COL vs GHA
+  { matchNum: 88, home: '2D', away: '2G',         r16Match: 95 }, // AUS vs EGY
 ];
 
 // R16: which two R32 match numbers feed each R16 match (verified vs fifa.com)
 export const R16_SEEDING: Array<{ matchNum: number; fromR32: [number, number]; qfMatch: number }> = [
   { matchNum: 89, fromR32: [74, 77], qfMatch: 97 },
   { matchNum: 90, fromR32: [73, 75], qfMatch: 97 },
-  { matchNum: 93, fromR32: [83, 84], qfMatch: 99 },
-  { matchNum: 94, fromR32: [81, 82], qfMatch: 99 },
-  { matchNum: 91, fromR32: [76, 78], qfMatch: 98 },
-  { matchNum: 92, fromR32: [79, 80], qfMatch: 98 },
+  { matchNum: 91, fromR32: [76, 78], qfMatch: 99 },
+  { matchNum: 92, fromR32: [79, 80], qfMatch: 99 },
+  { matchNum: 93, fromR32: [83, 84], qfMatch: 98 },
+  { matchNum: 94, fromR32: [81, 82], qfMatch: 98 },
   { matchNum: 95, fromR32: [86, 88], qfMatch: 100 },
   { matchNum: 96, fromR32: [85, 87], qfMatch: 100 },
 ];
