@@ -335,44 +335,92 @@ function RoundColumn({
   size = 'sm',
   showMatchNum = false,
   topOffset = 0,
-  connector = false,
+  pairGap = 28,
+  nextColumnOffset = 18,
 }: {
   title: string;
   matches: BracketMatch[];
   size?: 'xs' | 'sm' | 'md';
   showMatchNum?: boolean;
   topOffset?: number;
-  connector?: boolean;
+  pairGap?: number;
+  nextColumnOffset?: number;
 }) {
   const halfLen = Math.ceil(matches.length / 2);
   const topHalf = matches.slice(0, halfLen);
   const bottomHalf = matches.slice(halfLen);
 
-  function MatchStack({ items }: { items: BracketMatch[] }) {
-    return (
-      <div className="flex flex-col gap-2.5 relative">
-        {items.map((m, i) => (
-          <div
-            key={m.matchNum}
-            className="relative"
-            style={{ marginTop: i === 0 ? topOffset : 0 }}
-          >
-            <MatchCard match={m} size={size} showMatchNum={showMatchNum} />
+  function HalfBracket({ items }: { items: BracketMatch[] }) {
+    const pairs: BracketMatch[][] = [];
+    for (let i = 0; i < items.length; i += 2) {
+      pairs.push(items.slice(i, i + 2));
+    }
 
-            {connector && (
+    return (
+      <div className="flex flex-col" style={{ gap: `${pairGap}px` }}>
+        {pairs.map((pair, pairIndex) => (
+          <div
+            key={`pair-${pair[0]?.matchNum ?? pairIndex}`}
+            className="relative"
+            style={{ marginTop: pairIndex === 0 ? topOffset : 0 }}
+          >
+            <div className="flex flex-col gap-2.5">
+              {pair.map((m) => (
+                <div key={m.matchNum} className="relative">
+                  <MatchCard match={m} size={size} showMatchNum={showMatchNum} />
+                </div>
+              ))}
+            </div>
+
+            {pair.length === 2 && (
               <>
-                <div className="absolute top-1/2 -right-4 w-4 h-px bg-slate-300/80 dark:bg-slate-600/80" />
+                {/* short horizontal line from top match */}
+                <div
+                  className="absolute bg-slate-300/80 dark:bg-slate-600/80"
+                  style={{
+                    right: `-${nextColumnOffset}px`,
+                    top: '25%',
+                    width: `${nextColumnOffset}px`,
+                    height: '1px',
+                  }}
+                />
+
+                {/* short horizontal line from bottom match */}
+                <div
+                  className="absolute bg-slate-300/80 dark:bg-slate-600/80"
+                  style={{
+                    right: `-${nextColumnOffset}px`,
+                    top: '75%',
+                    width: `${nextColumnOffset}px`,
+                    height: '1px',
+                  }}
+                />
+
+                {/* vertical join */}
+                <div
+                  className="absolute bg-slate-300/80 dark:bg-slate-600/80"
+                  style={{
+                    right: `-${nextColumnOffset}px`,
+                    top: '25%',
+                    width: '1px',
+                    height: '50%',
+                  }}
+                />
+
+                {/* output line to next round */}
+                <div
+                  className="absolute bg-slate-300/80 dark:bg-slate-600/80"
+                  style={{
+                    right: `-${nextColumnOffset * 2}px`,
+                    top: '50%',
+                    width: `${nextColumnOffset}px`,
+                    height: '1px',
+                  }}
+                />
               </>
             )}
           </div>
         ))}
-
-        {connector && items.length >= 2 && (
-          <>
-            <div className="absolute right-[-16px] top-[25%] bottom-[25%] w-px bg-slate-300/80 dark:bg-slate-600/80" />
-            <div className="absolute right-[-32px] top-1/2 w-4 h-px bg-slate-300/80 dark:bg-slate-600/80" />
-          </>
-        )}
       </div>
     );
   }
@@ -383,10 +431,9 @@ function RoundColumn({
         {title}
       </h4>
 
-      <div className="flex flex-col gap-5">
-        <MatchStack items={topHalf} />
-        <div className="border-t border-dashed border-slate-200 dark:border-slate-700 my-1 opacity-50" />
-        <MatchStack items={bottomHalf} />
+      <div className="flex flex-col gap-6">
+        <HalfBracket items={topHalf} />
+        <HalfBracket items={bottomHalf} />
       </div>
     </div>
   );
@@ -469,7 +516,7 @@ export default function Bracket() {
         </div>
 
         <div className="p-5 sm:p-6 overflow-x-auto bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.03),_transparent_35%)]">
-          <div className="min-w-[1080px] flex items-start gap-6">
+          <div className="min-w-[1180px] flex items-start gap-8">
 
             {/* R32 — 16 matches */}
             <RoundColumn
@@ -478,7 +525,8 @@ export default function Bracket() {
               size="xs"
               showMatchNum={true}
               topOffset={0}
-              connector={true}
+              pairGap={18}
+              nextColumnOffset={16}
             />
 
             {/* R16 — 8 matches */}
@@ -488,7 +536,8 @@ export default function Bracket() {
               size="sm"
               showMatchNum={true}
               topOffset={20}
-              connector={true}
+              pairGap={44}
+              nextColumnOffset={18}
             />
 
             {/* QF — 4 matches */}
@@ -497,8 +546,9 @@ export default function Bracket() {
               matches={bracket.qf}
               size="sm"
               showMatchNum={true}
-              topOffset={52}
-              connector={true}
+              topOffset={56}
+              pairGap={86}
+              nextColumnOffset={18}
             />
 
             {/* SF — 2 matches */}
