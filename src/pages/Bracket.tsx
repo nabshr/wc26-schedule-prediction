@@ -335,95 +335,16 @@ function RoundColumn({
   size = 'sm',
   showMatchNum = false,
   topOffset = 0,
-  pairGap = 28,
-  nextColumnOffset = 18,
 }: {
   title: string;
   matches: BracketMatch[];
   size?: 'xs' | 'sm' | 'md';
   showMatchNum?: boolean;
   topOffset?: number;
-  pairGap?: number;
-  nextColumnOffset?: number;
 }) {
   const halfLen = Math.ceil(matches.length / 2);
   const topHalf = matches.slice(0, halfLen);
   const bottomHalf = matches.slice(halfLen);
-
-  function HalfBracket({ items }: { items: BracketMatch[] }) {
-    const pairs: BracketMatch[][] = [];
-    for (let i = 0; i < items.length; i += 2) {
-      pairs.push(items.slice(i, i + 2));
-    }
-
-    return (
-      <div className="flex flex-col" style={{ gap: `${pairGap}px` }}>
-        {pairs.map((pair, pairIndex) => (
-          <div
-            key={`pair-${pair[0]?.matchNum ?? pairIndex}`}
-            className="relative"
-            style={{ marginTop: pairIndex === 0 ? topOffset : 0 }}
-          >
-            <div className="flex flex-col gap-2.5">
-              {pair.map((m) => (
-                <div key={m.matchNum} className="relative">
-                  <MatchCard match={m} size={size} showMatchNum={showMatchNum} />
-                </div>
-              ))}
-            </div>
-
-            {pair.length === 2 && (
-              <>
-                {/* short horizontal line from top match */}
-                <div
-                  className="absolute bg-slate-300/80 dark:bg-slate-600/80"
-                  style={{
-                    right: `-${nextColumnOffset}px`,
-                    top: '25%',
-                    width: `${nextColumnOffset}px`,
-                    height: '1px',
-                  }}
-                />
-
-                {/* short horizontal line from bottom match */}
-                <div
-                  className="absolute bg-slate-300/80 dark:bg-slate-600/80"
-                  style={{
-                    right: `-${nextColumnOffset}px`,
-                    top: '75%',
-                    width: `${nextColumnOffset}px`,
-                    height: '1px',
-                  }}
-                />
-
-                {/* vertical join */}
-                <div
-                  className="absolute bg-slate-300/80 dark:bg-slate-600/80"
-                  style={{
-                    right: `-${nextColumnOffset}px`,
-                    top: '25%',
-                    width: '1px',
-                    height: '50%',
-                  }}
-                />
-
-                {/* output line to next round */}
-                <div
-                  className="absolute bg-slate-300/80 dark:bg-slate-600/80"
-                  style={{
-                    right: `-${nextColumnOffset * 2}px`,
-                    top: '50%',
-                    width: `${nextColumnOffset}px`,
-                    height: '1px',
-                  }}
-                />
-              </>
-            )}
-          </div>
-        ))}
-      </div>
-    );
-  }
 
   return (
     <div className="flex-1 min-w-[172px]">
@@ -432,9 +353,89 @@ function RoundColumn({
       </h4>
 
       <div className="flex flex-col gap-6">
-        <HalfBracket items={topHalf} />
-        <HalfBracket items={bottomHalf} />
+        <div className="flex flex-col gap-2.5">
+          {topHalf.map((m, i) => (
+            <div key={m.matchNum} style={{ marginTop: i === 0 ? topOffset : 0 }}>
+              <MatchCard match={m} size={size} showMatchNum={showMatchNum} />
+            </div>
+          ))}
+        </div>
+
+        <div className="flex flex-col gap-2.5">
+          {bottomHalf.map((m, i) => (
+            <div key={m.matchNum} style={{ marginTop: i === 0 ? topOffset : 0 }}>
+              <MatchCard match={m} size={size} showMatchNum={showMatchNum} />
+            </div>
+          ))}
+        </div>
       </div>
+    </div>
+  );
+}
+
+function BracketConnectors({
+  top,
+  pairCount,
+  pairHeight,
+  pairGap,
+  x = 0,
+  width = 24,
+}: {
+  top: number;
+  pairCount: number;
+  pairHeight: number;
+  pairGap: number;
+  x?: number;
+  width?: number;
+}) {
+  const lineClass = 'bg-slate-300/80 dark:bg-slate-600/80';
+
+  return (
+    <div
+      className="absolute pointer-events-none"
+      style={{
+        left: x,
+        top,
+        width: width * 2,
+        height: pairCount * pairHeight + (pairCount - 1) * pairGap,
+      }}
+    >
+      {Array.from({ length: pairCount }).map((_, i) => {
+        const pairTop = i * (pairHeight + pairGap);
+        return (
+          <div
+            key={i}
+            className="absolute"
+            style={{
+              top: pairTop,
+              left: 0,
+              width: width * 2,
+              height: pairHeight,
+            }}
+          >
+            {/* top horizontal */}
+            <div
+              className={`absolute ${lineClass}`}
+              style={{ left: 0, top: pairHeight * 0.25, width, height: 1 }}
+            />
+            {/* bottom horizontal */}
+            <div
+              className={`absolute ${lineClass}`}
+              style={{ left: 0, top: pairHeight * 0.75, width, height: 1 }}
+            />
+            {/* vertical join */}
+            <div
+              className={`absolute ${lineClass}`}
+              style={{ left: width, top: pairHeight * 0.25, width: 1, height: pairHeight * 0.5 }}
+            />
+            {/* output horizontal */}
+            <div
+              className={`absolute ${lineClass}`}
+              style={{ left: width, top: pairHeight * 0.5, width, height: 1 }}
+            />
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -516,95 +517,114 @@ export default function Bracket() {
         </div>
 
         <div className="p-5 sm:p-6 overflow-x-auto bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.03),_transparent_35%)]">
-          <div className="min-w-[1180px] flex items-start gap-8">
-
-            {/* R32 — 16 matches */}
-            <RoundColumn
-              title="Round of 32"
-              matches={bracket.r32}
-              size="xs"
-              showMatchNum={true}
-              topOffset={0}
-              pairGap={18}
-              nextColumnOffset={16}
-            />
-
-            {/* R16 — 8 matches */}
-            <RoundColumn
-              title="Round of 16"
-              matches={bracket.r16}
-              size="sm"
-              showMatchNum={true}
-              topOffset={20}
-              pairGap={44}
-              nextColumnOffset={18}
-            />
-
-            {/* QF — 4 matches */}
-            <RoundColumn
-              title="Quarter-Finals"
-              matches={bracket.qf}
-              size="sm"
-              showMatchNum={true}
-              topOffset={56}
-              pairGap={86}
-              nextColumnOffset={18}
-            />
-
-            {/* SF — 2 matches */}
-            <div className="flex-1 min-w-[172px] relative">
-              <h4 className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-[0.18em] mb-3 text-center">
-                Semi-Finals
-              </h4>
-              <div className="flex flex-col gap-3 relative">
-                <div style={{ marginTop: 120 }} className="relative">
-                  <MatchCard match={bracket.sf[0]} size="md" showMatchNum={true} />
-                </div>
-                <div className="border-t border-dashed border-slate-200 dark:border-slate-700 my-1 opacity-50" />
-                <div style={{ marginTop: 120 }} className="relative">
-                  <MatchCard match={bracket.sf[1]} size="md" showMatchNum={true} />
-                </div>
-              </div>
-            </div>
-
-            <div className="flex flex-col items-center min-w-[160px]" style={{ marginTop: '62vh' }}>
-              <h4 className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2 text-center">
-                Third Place
-              </h4>
-              <MatchCard match={thirdPlace} size="md" showMatchNum={true} />
-            </div>
-
-            {/* Final + Champion */}
-            <div className="flex flex-col items-center min-w-[180px]" style={{ marginTop: 290 }}>
-              <h4 className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">Final</h4>
-              <div className="w-full">
-                <MatchCard match={bracket.final} size="md" showMatchNum={true} />
+          <div className="min-w-[1280px] relative">
+            <div className="flex items-start gap-10 relative">
+              {/* R32 */}
+              <div className="relative">
+                <RoundColumn
+                  title="Round of 32"
+                  matches={bracket.r32}
+                  size="xs"
+                  showMatchNum={true}
+                  topOffset={0}
+                />
               </div>
 
-              {/* Champion */}
-              <div className="mt-5 flex flex-col items-center">
-                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-gold-400 to-gold-600 flex items-center justify-center shadow-glow-gold">
-                  <img src={championLogo} alt="WC 2026" className="w-full h-full object-contain" />
-                </div>
-                <p className="mt-2 text-xs font-semibold text-gold-600 dark:text-gold-400">Champion</p>
-                {bracket.final.winner && bracket.final.winner.code !== 'TBD' ? (
-                  <div className="mt-1.5 flex flex-col items-center gap-1">
-                    <TeamBadge
-                      name={getTeamByCode(bracket.final.winner.code)?.name || bracket.final.winner.code}
-                      code={bracket.final.winner.code}
-                      size="sm"
-                    />
-                    {bracket.final.isActual
-                      ? <span className="text-[9px] text-brand-500">✓ Confirmed</span>
-                      : <span className="text-[9px] text-amber-400">~ Predicted</span>
-                    }
+              {/* Connectors: R32 -> R16 */}
+              <div className="relative w-10 h-[980px]">
+                <BracketConnectors top={34} pairCount={4} pairHeight={154} pairGap={34} />
+                <BracketConnectors top={538} pairCount={4} pairHeight={154} pairGap={34} />
+              </div>
+
+              {/* R16 */}
+              <div className="relative">
+                <RoundColumn
+                  title="Round of 16"
+                  matches={bracket.r16}
+                  size="sm"
+                  showMatchNum={true}
+                  topOffset={20}
+                />
+              </div>
+
+              {/* Connectors: R16 -> QF */}
+              <div className="relative w-10 h-[980px]">
+                <BracketConnectors top={76} pairCount={2} pairHeight={252} pairGap={70} />
+                <BracketConnectors top={580} pairCount={2} pairHeight={252} pairGap={70} />
+              </div>
+
+              {/* QF */}
+              <div className="relative">
+                <RoundColumn
+                  title="Quarter-Finals"
+                  matches={bracket.qf}
+                  size="sm"
+                  showMatchNum={true}
+                  topOffset={56}
+                />
+              </div>
+
+              {/* Connectors: QF -> SF */}
+              <div className="relative w-10 h-[980px]">
+                <BracketConnectors top={138} pairCount={1} pairHeight={340} pairGap={0} />
+                <BracketConnectors top={640} pairCount={1} pairHeight={340} pairGap={0} />
+              </div>
+
+              {/* SF */}
+              <div className="flex-1 min-w-[172px]">
+                <h4 className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-[0.18em] mb-3 text-center">
+                  Semi-Finals
+                </h4>
+                <div className="flex flex-col gap-2">
+                  <div style={{ marginTop: 120 }}>
+                    <MatchCard match={bracket.sf[0]} size="md" showMatchNum={true} />
                   </div>
-                ) : (
-                  <p className="text-[10px] text-slate-400 mt-1">TBD</p>
-                )}
+                  <div style={{ marginTop: 210 }}>
+                    <MatchCard match={bracket.sf[1]} size="md" showMatchNum={true} />
+                  </div>
+                </div>
+              </div>
+
+              {/* Third place */}
+              <div className="flex flex-col items-center min-w-[180px]" style={{ marginTop: 620 }}>
+                <h4 className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-[0.18em] mb-2 text-center">
+                  Third Place
+                </h4>
+                <MatchCard match={thirdPlace} size="md" showMatchNum={true} />
+              </div>
+
+              {/* Final + Champion */}
+              <div className="flex flex-col items-center min-w-[180px]" style={{ marginTop: 290 }}>
+                <h4 className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-[0.18em] mb-2">
+                  Final
+                </h4>
+                <div className="w-full">
+                  <MatchCard match={bracket.final} size="md" showMatchNum={true} />
+                </div>
+
+                <div className="mt-5 flex flex-col items-center">
+                  <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-gold-400 to-gold-600 flex items-center justify-center shadow-glow-gold">
+                    <img src={championLogo} alt="WC 2026" className="w-full h-full object-contain" />
+                  </div>
+                  <p className="mt-2 text-xs font-semibold text-gold-600 dark:text-gold-400">Champion</p>
+                  {bracket.final.winner && bracket.final.winner.code !== 'TBD' ? (
+                    <div className="mt-1.5 flex flex-col items-center gap-1">
+                      <TeamBadge
+                        name={getTeamByCode(bracket.final.winner.code)?.name || bracket.final.winner.code}
+                        code={bracket.final.winner.code}
+                        size="sm"
+                      />
+                      {bracket.final.isActual
+                        ? <span className="text-[9px] text-brand-500">✓ Confirmed</span>
+                        : <span className="text-[9px] text-amber-400">~ Predicted</span>
+                      }
+                    </div>
+                  ) : (
+                    <p className="text-[10px] text-slate-400 mt-1">TBD</p>
+                  )}
+                </div>
               </div>
             </div>
-
           </div>
         </div>
       </RoundedCard>
